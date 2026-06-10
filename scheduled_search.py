@@ -83,7 +83,7 @@ def handle_multi_task_logged(user_input, search_name):
     attempt = 0
     seen_companies = set()
     target_valid = 10
-    max_attempts = 3
+    max_attempts = 5
 
     while len(validated_jobs) < target_valid and attempt < max_attempts:
         attempt += 1
@@ -135,10 +135,9 @@ def handle_multi_task_logged(user_input, search_name):
     write_log(f"  Sending email to cindyrkeller@gmail.com...")
     send_email(
         to_address="cindyrkeller@gmail.com",
-        subject=f"Job Search Results - {date.today().strftime('%B %d, %Y')}",
+        subject=f"{search_name} - {date.today().strftime('%B %d, %Y')}",
         body=formatted_results
     )
-
     write_log(f"  ✅ Email delivered successfully")
     return f"Done! {len(validated_jobs)} jobs emailed."
 
