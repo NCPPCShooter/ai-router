@@ -194,7 +194,7 @@ def send_email(to_address, subject, body):
         server.send_message(msg)
 
 
-def handle_multi_task(user_input, target_valid=5, max_attempts=3):
+def handle_multi_task(user_input, target_valid=10, max_attempts=3):
     """Handle tasks requiring search + format + email with recursive validation."""
     
     # Extract excluded companies from the prompt

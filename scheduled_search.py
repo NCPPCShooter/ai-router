@@ -82,7 +82,7 @@ def handle_multi_task_logged(user_input, search_name):
     validated_jobs = []
     attempt = 0
     seen_companies = set()
-    target_valid = 5
+    target_valid = 10
     max_attempts = 3
 
     while len(validated_jobs) < target_valid and attempt < max_attempts:
