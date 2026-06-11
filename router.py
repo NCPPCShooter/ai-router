@@ -229,6 +229,29 @@ def format_with_claude(jobs_with_links, user_input):
         max_tokens=2048,
         messages=[
             {"role": "user", "content": f"""Format these verified job search results into a clean email.
+             
+def format_research_with_claude(raw_results, user_input):
+    """Use Claude to format research results as a proper document."""
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=4096,
+        messages=[
+            {"role": "user", "content": f"""Format the following research findings into a clear, 
+professional document. This is NOT a job search — it is a research task.
+
+Format it as a proper briefing document with:
+- Clear sections and headers
+- Bullet points where appropriate
+- Professional tone appropriate for the audience described in the request
+- Sources cited where available
+
+Original request: {user_input}
+
+Research findings:
+{raw_results}"""}
+        ]
+    )
+    return response.content[0].text
 
 Each job has been verified and includes working search links.
 Format each job clearly with all details.
@@ -262,10 +285,7 @@ def handle_research_task(user_input):
     raw_results = research_with_both(user_input)
 
     print("Formatting results with Claude...")
-    formatted_results = format_with_claude(
-        raw_results,
-        user_input + "\n\nNote: Results include both Grok discovery findings and Perplexity verified citations. Where they agree, treat as confirmed. Where they differ, note the discrepancy. Prioritize Perplexity citations as more reliable."
-    )
+    formatted_results = format_research_with_claude(raw_results, user_input)
 
     # Extract email address from prompt if present
     import re
