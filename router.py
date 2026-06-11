@@ -25,10 +25,11 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 # Routing prompt
 ROUTING_PROMPT = """You are an AI task router. Analyze the task and respond with ONLY one of these words:
 - claude: reasoning, analysis, writing, summarization, formatting, general questions
-- grok: current events, job searches, live web search, news, recent information
+- grok: current events, live web search, news, recent information
 - openai: creative writing, broad general knowledge tasks
 - github: ANY coding task, code generation, code review, debugging, technical documentation, programming questions, software development, writing functions or scripts
-- multi: tasks requiring search AND formatting AND email
+- research: search the web for contact information, company details, recruiter info, or business research then email results
+- multi: search for JOB OPENINGS or JOB POSTINGS then format and email results
 
 Respond with ONLY one word. Nothing else."""
 
@@ -157,6 +158,33 @@ Description: [2-3 sentences]"""
     print("--- END DEBUG ---\n")
     return result
 
+def research_with_grok(user_input):
+    """Use Grok to research contact information and business details."""
+    from xai_sdk.chat import user as xai_user
+    from xai_sdk.tools import web_search as grok_web_search
+
+    chat = xai_client.chat.create(
+        model="grok-3",
+        tools=[grok_web_search()],
+    )
+
+    chat.append(xai_user(user_input))
+    response = chat.sample()
+
+    if hasattr(response, 'message'):
+        result = response.message.content
+    elif hasattr(response, 'choices'):
+        result = response.choices[0].message.content
+    elif hasattr(response, 'content'):
+        result = response.content
+    else:
+        result = str(response)
+
+    print(f"\n--- DEBUG: Grok research response (first 500 chars) ---")
+    print(result[:500])
+    print("--- END DEBUG ---\n")
+    return result
+
 def format_with_claude(jobs_with_links, user_input):
     """Use Claude to format validated jobs into a clean email."""
     jobs_text = json.dumps(jobs_with_links, indent=2)
@@ -193,6 +221,31 @@ def send_email(to_address, subject, body):
         server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
         server.send_message(msg)
 
+def handle_research_task(user_input):
+    """Handle research tasks - search web and email results."""
+    print("Searching for information with Grok...")
+    raw_results = research_with_grok(user_input)
+
+    print("Formatting results with Claude...")
+    formatted_results = format_with_claude(raw_results, user_input)
+
+    # Extract email address from prompt if present
+    import re
+    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_input)
+    to_address = email_match.group(0) if email_match else "cindyrkeller@gmail.com"
+
+    # Extract subject from prompt or use default
+    subject_match = re.search(r'subject[:\s]+"?([^"\n]+)"?', user_input, re.IGNORECASE)
+    subject = subject_match.group(1).strip() if subject_match else f"Research Results - {date.today().strftime('%B %d, %Y')}"
+
+    print(f"Sending email to {to_address}...")
+    send_email(
+        to_address=to_address,
+        subject=subject,
+        body=formatted_results
+    )
+
+    return f"Done! Results emailed to {to_address}\n\nPreview:\n{formatted_results[:500]}..."
 
 def handle_multi_task(user_input, target_valid=10, max_attempts=5):
     """Handle tasks requiring search + format + email with recursive validation."""
@@ -271,6 +324,9 @@ def handle_multi_task(user_input, target_valid=10, max_attempts=5):
 
 def run_task(ai, user_input):
     """Send the task to the chosen AI and return the result."""
+    if ai == "research":
+        return handle_research_task(user_input)
+    
     if ai == "multi":
         return handle_multi_task(user_input)
 
