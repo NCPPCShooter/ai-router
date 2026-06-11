@@ -4,4 +4,3 @@ xai-sdk
 requests
 streamlit
 python-dotenv
-perplexity-ai
