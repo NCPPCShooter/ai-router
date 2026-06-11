@@ -30,10 +30,6 @@ GMAIL_APP_PASSWORD = get_secret("GMAIL_APP_PASSWORD")
 from xai_sdk import Client as XAIClient
 xai_client = XAIClient(api_key=get_secret("XAI_API_KEY"))
 
-# Email config
-SENDER_EMAIL = "kirkkeller@gmail.com"
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-
 # Routing prompt
 ROUTING_PROMPT = """You are an AI task router. Analyze the task and respond with ONLY one of these words:
 - claude: reasoning, analysis, writing, summarization, formatting, general questions
@@ -63,7 +59,6 @@ def build_verified_search_urls(job_title, company):
     title_encoded = requests.utils.quote(job_title)
     company_encoded = requests.utils.quote(company)
     query = f"{title_encoded}+{company_encoded}"
-
     return {
         "LinkedIn": f"https://www.linkedin.com/jobs/search/?keywords={query}&f_WT=2",
         "Indeed": f"https://www.indeed.com/jobs?q={query}&l=Remote",
@@ -73,14 +68,10 @@ def build_verified_search_urls(job_title, company):
 
 def validate_url(url):
     """Check if a URL returns a valid response."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
         response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
-        if response.status_code in [200, 301, 302]:
-            return True
-        return False
+        return response.status_code in [200, 301, 302]
     except:
         return False
 
@@ -91,29 +82,14 @@ def parse_jobs_from_grok(raw_text):
         model="claude-sonnet-4-5",
         max_tokens=2048,
         messages=[
-            {"role": "user", "content": f"""Parse the following job search results into a JSON array.
-Each job should have these exact fields:
-- title (job title)
-- company (company name)
-- salary (salary range or "Not listed")
-- location (location or remote status)
-- description (2-3 sentence description)
-
-Return ONLY a valid JSON array with no other text, no markdown, no backticks.
-If you cannot parse any jobs, return an empty array: []
-
-Raw results:
-{raw_text}"""}
+            {"role": "user", "content": "Parse the following job search results into a JSON array. Each job should have these exact fields: title, company, salary, location, description. Return ONLY a valid JSON array with no other text, no markdown, no backticks. If you cannot parse any jobs, return an empty array: []\n\nRaw results:\n" + raw_text}
         ]
     )
-    
     raw_response = response.content[0].text.strip()
     print(f"\n--- DEBUG: Claude parse response (first 300 chars) ---")
     print(raw_response[:300])
     print("--- END DEBUG ---\n")
-    
     try:
-        # Strip any accidental markdown backticks
         clean = raw_response.replace("```json", "").replace("```", "").strip()
         jobs = json.loads(clean)
         return jobs if isinstance(jobs, list) else []
@@ -124,35 +100,25 @@ Raw results:
 
 def search_with_grok(user_input, exclude_companies=None):
     """Use Grok with live web search tool enabled."""
+    from xai_sdk.chat import user as xai_user
+    from xai_sdk.tools import web_search as grok_web_search
+
     exclude_text = ""
     if exclude_companies:
         exclude_text = f"\nDo NOT include positions from: {', '.join(exclude_companies)}"
 
-    search_query = f"""Search the web right now for real current remote job postings.
-Find at least 10 remote Senior Sourcing or Procurement Manager positions paying $140,000-$175,000+.
-
-Search LinkedIn, Indeed, Glassdoor for these titles:
-Senior Sourcing Manager, Director of Sourcing, Strategic Sourcing Manager, 
-Senior Procurement Manager, Global Sourcing Manager, Contract Manager, Vendor Manager
-
-Requirements: Remote only, US-based, salary $140k-$175k+
-{exclude_text}
-
-For each job return:
-Job Title: [title]
-Company: [company]
-Salary: [salary or Not listed]
-Location: [remote/location]
-Description: [2-3 sentences]"""
-
-    from xai_sdk.chat import user as xai_user
-    from xai_sdk.tools import web_search as grok_web_search
-
-    chat = xai_client.chat.create(
-        model="grok-3",
-        tools=[grok_web_search()],
+    search_query = (
+        "Search the web right now for real current remote job postings. "
+        "Find at least 10 remote Senior Sourcing or Procurement Manager positions paying $140,000-$175,000+. "
+        "Search LinkedIn, Indeed, Glassdoor for these titles: "
+        "Senior Sourcing Manager, Director of Sourcing, Strategic Sourcing Manager, "
+        "Senior Procurement Manager, Global Sourcing Manager, Contract Manager, Vendor Manager. "
+        "Requirements: Remote only, US-based, salary $140k-$175k+. "
+        + exclude_text +
+        "\nFor each job return: Job Title, Company, Salary, Location, Description (2-3 sentences)."
     )
 
+    chat = xai_client.chat.create(model="grok-3", tools=[grok_web_search()])
     chat.append(xai_user(search_query))
     response = chat.sample()
 
@@ -170,16 +136,13 @@ Description: [2-3 sentences]"""
     print("--- END DEBUG ---\n")
     return result
 
+
 def research_with_grok(user_input):
     """Use Grok to research contact information and business details."""
     from xai_sdk.chat import user as xai_user
     from xai_sdk.tools import web_search as grok_web_search
 
-    chat = xai_client.chat.create(
-        model="grok-3",
-        tools=[grok_web_search()],
-    )
-
+    chat = xai_client.chat.create(model="grok-3", tools=[grok_web_search()])
     chat.append(xai_user(user_input))
     response = chat.sample()
 
@@ -197,6 +160,7 @@ def research_with_grok(user_input):
     print("--- END DEBUG ---\n")
     return result
 
+
 def research_with_perplexity(user_input):
     """Use Perplexity for research tasks with cited sources."""
     response = perplexity_client.chat.completions.create(
@@ -212,6 +176,7 @@ def research_with_perplexity(user_input):
     print("--- END DEBUG ---\n")
     return result
 
+
 def research_with_both(user_input):
     """Use Grok for discovery, Perplexity for verification."""
     print("  Discovery search with Grok...")
@@ -220,49 +185,43 @@ def research_with_both(user_input):
     perplexity_results = research_with_perplexity(user_input)
     return f"GROK FINDINGS:\n{grok_results}\n\nPERPLEXITY VERIFIED:\n{perplexity_results}"
 
+
 def format_with_claude(jobs_with_links, user_input):
     """Use Claude to format validated jobs into a clean email."""
     jobs_text = json.dumps(jobs_with_links, indent=2)
-    
+    prompt = (
+        "Format these verified job search results into a clean email. "
+        "Each job has been verified and includes working search links. "
+        "Format each job clearly with all details. "
+        "Note that links go to job board searches for that specific role at that company. "
+        "End with a brief note about search criteria used.\n\n"
+        f"Original request summary: {user_input[:200]}\n\nJobs data:\n{jobs_text}"
+    )
     response = claude_client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=2048,
-        messages=[
-            {"role": "user", "content": f"""Format these verified job search results into a clean email.
-             
-def format_research_with_claude(raw_results, user_input):
-    """Use Claude to format research results as a proper document."""
-    response = claude_client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=4096,
-        messages=[
-            {"role": "user", "content": f"""Format the following research findings into a clear, 
-professional document. This is NOT a job search - it is a research task.
-
-Format it as a proper briefing document with:
-- Clear sections and headers
-- Bullet points where appropriate
-- Professional tone appropriate for the audience described in the request
-- Sources cited where available
-
-Original request: {user_input}
-
-Research findings:
-{raw_results}"""}
-        ]
+        messages=[{"role": "user", "content": prompt}]
     )
     return response.content[0].text
 
-Each job has been verified and includes working search links.
-Format each job clearly with all details.
-Note that links go to job board searches for that specific role at that company.
-End with a brief note about search criteria used.
 
-Original request summary: {user_input[:200]}
-
-Jobs data:
-{jobs_text}"""}
-        ]
+def format_research_with_claude(raw_results, user_input):
+    """Use Claude to format research results as a proper document."""
+    prompt = (
+        "Format the following research findings into a clear professional document. "
+        "This is NOT a job search - it is a research task.\n\n"
+        "Format it as a proper briefing document with:\n"
+        "- Clear sections and headers\n"
+        "- Bullet points where appropriate\n"
+        "- Professional tone appropriate for the audience described in the request\n"
+        "- Sources cited where available\n\n"
+        f"Original request: {user_input}\n\n"
+        f"Research findings:\n{raw_results}"
+    )
+    response = claude_client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}]
     )
     return response.content[0].text
 
@@ -274,10 +233,10 @@ def send_email(to_address, subject, body):
     msg['To'] = to_address
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
-
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
         server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
         server.send_message(msg)
+
 
 def handle_research_task(user_input):
     """Handle research tasks - search web and email results."""
@@ -287,28 +246,20 @@ def handle_research_task(user_input):
     print("Formatting results with Claude...")
     formatted_results = format_research_with_claude(raw_results, user_input)
 
-    # Extract email address from prompt if present
-    import re
     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_input)
     to_address = email_match.group(0) if email_match else "kirkkeller@gmail.com"
 
-    # Extract subject from prompt or use default
     subject_match = re.search(r'subject[:\s]+"?([^"\n]+)"?', user_input, re.IGNORECASE)
     subject = subject_match.group(1).strip() if subject_match else f"Research Results - {date.today().strftime('%B %d, %Y')}"
 
     print(f"Sending email to {to_address}...")
-    send_email(
-        to_address=to_address,
-        subject=subject,
-        body=formatted_results
-    )
+    send_email(to_address=to_address, subject=subject, body=formatted_results)
 
     return f"Done! Results emailed to {to_address}\n\nPreview:\n{formatted_results[:500]}..."
 
+
 def handle_multi_task(user_input, target_valid=10, max_attempts=5):
     """Handle tasks requiring search + format + email with recursive validation."""
-    
-    # Extract excluded companies from the prompt
     exclude_companies = []
     if "First Citizens" in user_input:
         exclude_companies = ["First Citizens", "First Citizens Bank & Trust"]
@@ -320,44 +271,36 @@ def handle_multi_task(user_input, target_valid=10, max_attempts=5):
     while len(validated_jobs) < target_valid and attempt < max_attempts:
         attempt += 1
         print(f"Step {attempt}: Searching for jobs (attempt {attempt}/{max_attempts})...")
-        
+
         raw_results = search_with_grok(user_input, exclude_companies)
-        
+
         print(f"   Parsing job listings...")
         jobs = parse_jobs_from_grok(raw_results)
-        
+
         print(f"   Found {len(jobs)} listings, building and validating links...")
-        
+
         for job in jobs:
-            # Skip if we already have this company
             company_key = job.get("company", "").lower().strip()
             if company_key in seen_companies:
                 continue
-            
-            # Skip excluded companies
             if any(exc.lower() in company_key for exc in exclude_companies):
                 continue
 
-            # Build verified search URLs
-            search_urls = build_verified_search_urls(
-                job.get("title", ""), 
-                job.get("company", "")
-            )
-            
-            # Validate at least one URL works
+            search_urls = build_verified_search_urls(job.get("title", ""), job.get("company", ""))
+
             verified_urls = {}
             for platform, url in search_urls.items():
                 if validate_url(url):
                     verified_urls[platform] = url
-            
+
             if verified_urls:
                 job["search_links"] = verified_urls
-                job["link_status"] = "✅ Verified"
+                job["link_status"] = "Verified"
                 validated_jobs.append(job)
                 seen_companies.add(company_key)
-                print(f"   ✅ {job.get('company')} - {job.get('title')}")
+                print(f"   OK: {job.get('company')} - {job.get('title')}")
             else:
-                print(f"   ⚠️  Skipping {job.get('company')} - no valid links found")
+                print(f"   Skipping {job.get('company')} - no valid links found")
 
             if len(validated_jobs) >= target_valid:
                 break
@@ -384,7 +327,7 @@ def run_task(ai, user_input):
     """Send the task to the chosen AI and return the result."""
     if ai == "research":
         return handle_research_task(user_input)
-    
+
     if ai == "multi":
         return handle_multi_task(user_input)
 
