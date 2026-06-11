@@ -1,0 +1,7 @@
+anthropic
+openai
+xai-sdk
+requests
+streamlit
+python-dotenv
+perplexity-ai
