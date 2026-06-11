@@ -3,6 +3,13 @@ import sys
 import os
 from datetime import datetime
 
+# Load secrets from Streamlit Cloud or fall back to environment variables
+def get_secret(key):
+    try:
+        return st.secrets[key]
+    except:
+        return os.getenv(key)
+    
 # Add router to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

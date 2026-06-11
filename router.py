@@ -9,15 +9,22 @@ from datetime import date
 import anthropic
 from openai import OpenAI
 
+# Load secrets from Streamlit Cloud or fall back to environment variables
+def get_secret(key):
+    try:
+        import streamlit as st
+        return st.secrets[key]
+    except:
+        return os.getenv(key)
+
 # Initialize clients
-claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-grok_client = OpenAI(api_key=os.getenv("XAI_API_KEY"), base_url="https://api.x.ai/v1")
-from xai_sdk import Client as XAIClient
-from xai_sdk.tools import web_search as grok_web_search
-xai_client = XAIClient(api_key=os.getenv("XAI_API_KEY"))
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-github_client = OpenAI(api_key=os.getenv("GITHUB_TOKEN"), base_url="https://models.github.ai/inference")
-perplexity_client = OpenAI(api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https://api.perplexity.ai")
+claude_client = anthropic.Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
+grok_client = OpenAI(api_key=get_secret("XAI_API_KEY"), base_url="https://api.x.ai/v1")
+openai_client = OpenAI(api_key=get_secret("OPENAI_API_KEY"))
+github_client = OpenAI(api_key=get_secret("GITHUB_TOKEN"), base_url="https://models.github.ai/inference")
+perplexity_client = OpenAI(api_key=get_secret("PERPLEXITY_API_KEY"), base_url="https://api.perplexity.ai")
+SENDER_EMAIL = "kirkkeller@gmail.com"
+GMAIL_APP_PASSWORD = get_secret("GMAIL_APP_PASSWORD")
 
 # Email config
 SENDER_EMAIL = "kirkkeller@gmail.com"
