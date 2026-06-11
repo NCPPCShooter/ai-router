@@ -41,7 +41,7 @@ ROUTING_PROMPT = """You are an AI task router. Analyze the task and respond with
 - openai: creative writing, broad general knowledge tasks
 - github: ANY coding task, code generation, code review, debugging, technical documentation, programming questions, software development, writing functions or scripts
 - research: search for contact information, company details, recruiter info, business research, or any research requiring cited sources then email results
-- multi: search for JOB OPENINGS or JOB POSTINGS then format and email results
+- multi: ONLY for searching job boards for employment opportunities, job openings, or job postings for a candidate
 
 Respond with ONLY one word. Nothing else."""
 
