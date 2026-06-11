@@ -56,7 +56,7 @@ def load_prompt(filepath):
     except FileNotFoundError:
         return f"Prompt file not found: {filepath}"
 
-PROMPT_DIR = r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches"
+PROMPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
 
 QUICK_PROMPTS = {
     "🔍 Job Search (US)": load_prompt(os.path.join(PROMPT_DIR, "sr-sourcing-manager-prompt.txt")),

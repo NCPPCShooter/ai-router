@@ -1,0 +1,27 @@
+Search the web for current contact information for the following specialized procurement and sourcing recruiting firms. For each firm find:
+- Primary website URL
+- General contact email or contact form URL
+- LinkedIn company page URL
+- Name and LinkedIn profile of any specific recruiters who specialize in procurement, sourcing, or supply chain roles
+- Any specific instructions for submitting candidate profiles
+
+Firms to research:
+1. SCM Talent Group (scmtalent.com)
+2. JMJ Phillip (jmjphillip.com)
+3. Avery Point Group (averypointgroup.com)
+4. SCOPE Recruiting (scoperecruiting.com)
+5. Korn Ferry - Supply Chain Practice (kornferry.com)
+6. SPS Consulting Group (spscg.com)
+7. Lutzer Global
+
+For each firm return:
+Firm: [name]
+Website: [URL]
+Contact Email: [email or contact page URL]
+LinkedIn: [company LinkedIn URL]
+Key Recruiter: [name and title if found]
+Recruiter LinkedIn: [URL if found]
+Submission Notes: [any specific instructions for candidates]
+Please email the results to cindyrkeller@gmail.com with subject "Recruiter Contact List - [today's date]"
+---
+###END###
