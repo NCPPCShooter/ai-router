@@ -270,7 +270,7 @@ def handle_research_task(user_input):
     # Extract email address from prompt if present
     import re
     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_input)
-    to_address = email_match.group(0) if email_match else "cindyrkeller@gmail.com"
+    to_address = email_match.group(0) if email_match else "kirkkeller@gmail.com"
 
     # Extract subject from prompt or use default
     subject_match = re.search(r'subject[:\s]+"?([^"\n]+)"?', user_input, re.IGNORECASE)
