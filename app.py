@@ -2,8 +2,6 @@ import streamlit as st
 import sys
 import os
 from datetime import datetime
-from io import StringIO
-import threading
 
 # Add router to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -37,16 +35,6 @@ st.markdown("""
         font-size: 0.9rem;
         margin-bottom: 1rem;
     }
-    .history-item {
-        padding: 0.5rem;
-        border-left: 3px solid #2E75B6;
-        margin-bottom: 0.5rem;
-        background: #f8f9fa;
-        border-radius: 0 4px 4px 0;
-    }
-    .stTextArea textarea {
-        font-size: 0.95rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,6 +48,22 @@ ROUTE_COLORS = {
     "multi":    "#2E75B6",
 }
 
+# ── Prompt loader ──────────────────────────────────────────
+def load_prompt(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read().replace("###END###", "").strip()
+    except FileNotFoundError:
+        return f"Prompt file not found: {filepath}"
+
+PROMPT_DIR = r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches"
+
+QUICK_PROMPTS = {
+    "🔍 Job Search (US)": load_prompt(os.path.join(PROMPT_DIR, "sr-sourcing-manager-prompt.txt")),
+    "🌍 Job Search (Global)": load_prompt(os.path.join(PROMPT_DIR, "sr-sourcing-manager-global-prompt.txt")),
+    "📋 Recruiter Research": load_prompt(os.path.join(PROMPT_DIR, "recruiter-contact-search-prompt.txt")),
+}
+
 # ── Session state ──────────────────────────────────────────
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -67,8 +71,10 @@ if "result" not in st.session_state:
     st.session_state.result = None
 if "route" not in st.session_state:
     st.session_state.route = None
-if "processing" not in st.session_state:
-    st.session_state.processing = False
+if "pending_input" not in st.session_state:
+    st.session_state.pending_input = None
+if "loaded_prompt" not in st.session_state:
+    st.session_state.loaded_prompt = ""
 
 # ── Header ─────────────────────────────────────────────────
 st.markdown('<div class="main-header">🤖 AI Router</div>', unsafe_allow_html=True)
@@ -77,16 +83,49 @@ st.markdown('<div class="sub-header">Intelligent task routing across Claude, Gro
 # ── Layout ─────────────────────────────────────────────────
 col1, col2 = st.columns([2, 1])
 
+with col2:
+    st.subheader("Quick Prompts")
+    for label, prompt in QUICK_PROMPTS.items():
+        if st.button(label, use_container_width=True):
+            st.session_state.loaded_prompt = prompt
+            st.rerun()
+
+    st.divider()
+    st.subheader("History")
+    if not st.session_state.history:
+        st.caption("No tasks run yet this session.")
+    else:
+        for item in st.session_state.history[:10]:
+            color = ROUTE_COLORS.get(item["route"], "#666")
+            with st.expander(f"{item['timestamp']} · {item['route'].upper()} · {item['preview']}"):
+                st.markdown(item["result"])
+
+    st.divider()
+    st.subheader("Route Guide")
+    routes = [
+        ("🟠 CLAUDE",   "Reasoning, writing, analysis"),
+        ("🔵 GROK",     "Live job searches"),
+        ("🟢 OPENAI",   "General knowledge, creative"),
+        ("⚫ GITHUB",   "Code generation, debugging"),
+        ("🟣 RESEARCH", "Contact & business research"),
+        ("🔷 MULTI",    "Full job search pipeline"),
+    ]
+    for route, desc in routes:
+        st.caption(f"**{route}** — {desc}")
+
 with col1:
     st.subheader("Your Task")
+
     user_input = st.text_area(
-        label="Enter your task or paste a prompt:",
+        label="task",
         height=250,
-        placeholder="Type your task here, or paste a saved prompt...\n\nExamples:\n• Search for remote Senior Sourcing Manager jobs paying $150K+\n• Write a Python function that...\n• Research contact info for [company]\n• What are the latest news stories about AI?",
+        value=st.session_state.loaded_prompt,
+        placeholder="Type your task here, or click a Quick Prompt button...\n\nExamples:\n• Search for remote Senior Sourcing Manager jobs paying $150K+\n• Write a Python function that...\n• Research contact info for [company]\n• What are the latest AI news stories?",
         label_visibility="collapsed"
     )
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
+
     with col_btn1:
         submit = st.button("🚀 Submit", type="primary", use_container_width=True)
     with col_btn2:
@@ -95,12 +134,17 @@ with col1:
     if clear:
         st.session_state.result = None
         st.session_state.route = None
+        st.session_state.loaded_prompt = ""
+        st.session_state.pending_input = None
         st.rerun()
 
-    # ── Processing ─────────────────────────────────────────
     if submit and user_input.strip():
-        # Strip ###END### if pasted from prompt file
-        clean_input = user_input.replace("###END###", "").strip()
+        st.session_state.pending_input = user_input.replace("###END###", "").strip()
+        st.session_state.loaded_prompt = ""
+
+    if st.session_state.pending_input:
+        clean_input = st.session_state.pending_input
+        st.session_state.pending_input = None
 
         with st.spinner("Routing your task..."):
             try:
@@ -109,11 +153,10 @@ with col1:
                 route = route_task(clean_input)
                 st.session_state.route = route
 
-                with st.spinner(f"Running task with {route.upper()}..."):
+                with st.spinner(f"Running with {route.upper()}..."):
                     result = run_task(route, clean_input)
                     st.session_state.result = result
 
-                # Save to history
                 st.session_state.history.insert(0, {
                     "timestamp": datetime.now().strftime("%b %d %I:%M %p"),
                     "route": route,
@@ -125,7 +168,6 @@ with col1:
                 st.session_state.result = f"Error: {str(e)}"
                 st.session_state.route = "error"
 
-    # ── Result display ─────────────────────────────────────
     if st.session_state.result:
         route = st.session_state.route
         color = ROUTE_COLORS.get(route, "#666")
@@ -139,55 +181,9 @@ with col1:
         st.subheader("Result")
         st.markdown(st.session_state.result)
 
-        # Download button
         st.download_button(
             label="📥 Download Result",
             data=st.session_state.result,
             file_name=f"ai_router_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain"
         )
-
-with col2:
-    st.subheader("Quick Prompts")
-
-    quick_prompts = {
-        "🔍 Job Search (US)": open(r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches\sr-sourcing-manager-prompt.txt").read().replace("###END###", "").strip(),
-        "🌍 Job Search (Global)": open(r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches\sr-sourcing-manager-global-prompt.txt").read().replace("###END###", "").strip(),
-        "📋 Recruiter Research": open(r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches\recruiter-contact-search-prompt.txt").read().replace("###END###", "").strip(),
-    }
-
-    for label, prompt in quick_prompts.items():
-        if st.button(label, use_container_width=True):
-            st.session_state["load_prompt"] = prompt
-            st.rerun()
-
-    if "load_prompt" in st.session_state:
-        st.info("Prompt loaded — click Submit to run it.")
-
-    st.divider()
-
-    # ── History ────────────────────────────────────────────
-    st.subheader("History")
-
-    if not st.session_state.history:
-        st.caption("No tasks run yet this session.")
-    else:
-        for i, item in enumerate(st.session_state.history[:10]):
-            color = ROUTE_COLORS.get(item["route"], "#666")
-            with st.expander(f"{item['timestamp']} · {item['route'].upper()} · {item['preview']}"):
-                st.markdown(item["result"])
-
-    st.divider()
-
-    # ── Route guide ────────────────────────────────────────
-    st.subheader("Route Guide")
-    routes = [
-        ("🟠 CLAUDE",    "Reasoning, writing, analysis"),
-        ("🔵 GROK",      "Live job searches"),
-        ("🟢 OPENAI",    "General knowledge, creative"),
-        ("⚫ GITHUB",    "Code generation, debugging"),
-        ("🟣 RESEARCH",  "Contact & business research"),
-        ("🔷 MULTI",     "Full job search pipeline"),
-    ]
-    for route, desc in routes:
-        st.caption(f"**{route}** — {desc}")
