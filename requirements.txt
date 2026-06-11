@@ -4,3 +4,4 @@ xai-sdk
 requests
 streamlit
 python-dotenv
+python-docx

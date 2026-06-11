@@ -3,11 +3,17 @@ import re
 import json
 import smtplib
 import requests
+import tempfile
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import date
 import anthropic
 from openai import OpenAI
+from docx import Document
+from docx.shared import Pt, RGBColor, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Load secrets from Streamlit Cloud or fall back to environment variables
 def get_secret(key):
@@ -186,6 +192,84 @@ def research_with_both(user_input):
     return f"GROK FINDINGS:\n{grok_results}\n\nPERPLEXITY VERIFIED:\n{perplexity_results}"
 
 
+def create_word_doc(content, title="Research Results"):
+    """Convert research text content into a formatted Word document."""
+    doc = Document()
+
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1.25)
+        section.right_margin = Inches(1.25)
+
+    # Title
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run(title)
+    title_run.font.size = Pt(18)
+    title_run.font.bold = True
+    title_run.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph()
+
+    # Process content line by line
+    lines = content.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if line.startswith('### '):
+            p = doc.add_paragraph()
+            run = p.add_run(line[4:])
+            run.font.size = Pt(12)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+
+        elif line.startswith('## '):
+            p = doc.add_paragraph()
+            run = p.add_run(line[3:])
+            run.font.size = Pt(14)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(0x1F, 0x5C, 0x9E)
+
+        elif line.startswith('# '):
+            p = doc.add_paragraph()
+            run = p.add_run(line[2:])
+            run.font.size = Pt(16)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+
+        elif line.startswith('- ') or line.startswith('* '):
+            p = doc.add_paragraph(style='List Bullet')
+            text = line[2:]
+            parts = re.split(r'\*\*(.+?)\*\*', text)
+            for j, part in enumerate(parts):
+                run = p.add_run(part)
+                run.font.size = Pt(11)
+                if j % 2 == 1:
+                    run.font.bold = True
+
+        elif re.match(r'^\d+\. ', line):
+            p = doc.add_paragraph(style='List Number')
+            text = re.sub(r'^\d+\. ', '', line)
+            run = p.add_run(text)
+            run.font.size = Pt(11)
+
+        else:
+            p = doc.add_paragraph()
+            parts = re.split(r'\*\*(.+?)\*\*', line)
+            for j, part in enumerate(parts):
+                if part:
+                    run = p.add_run(part)
+                    run.font.size = Pt(11)
+                    if j % 2 == 1:
+                        run.font.bold = True
+
+    filepath = os.path.join(tempfile.gettempdir(), f"research_{title[:30].replace(' ', '_').replace('/', '_')}.docx")
+    doc.save(filepath)
+    return filepath
+
+
 def format_with_claude(jobs_with_links, user_input):
     """Use Claude to format validated jobs into a clean email."""
     jobs_text = json.dumps(jobs_with_links, indent=2)
@@ -211,8 +295,9 @@ def format_research_with_claude(raw_results, user_input):
         "Format the following research findings into a clear professional document. "
         "This is NOT a job search - it is a research task.\n\n"
         "Format it as a proper briefing document with:\n"
-        "- Clear sections and headers\n"
+        "- Clear sections and headers using markdown (## for sections, ### for subsections)\n"
         "- Bullet points where appropriate\n"
+        "- Bold key terms using **term** markdown\n"
         "- Professional tone appropriate for the audience described in the request\n"
         "- Sources cited where available\n\n"
         f"Original request: {user_input}\n\n"
@@ -227,7 +312,7 @@ def format_research_with_claude(raw_results, user_input):
 
 
 def send_email(to_address, subject, body):
-    """Send email via Gmail SMTP."""
+    """Send plain text email via Gmail SMTP."""
     msg = MIMEMultipart()
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_address
@@ -238,8 +323,29 @@ def send_email(to_address, subject, body):
         server.send_message(msg)
 
 
+def send_email_with_attachment(to_address, subject, body, attachment_path):
+    """Send email with a Word doc attachment via Gmail SMTP."""
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = to_address
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    with open(attachment_path, 'rb') as f:
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(f.read())
+        encoders.encode_base64(part)
+        filename = os.path.basename(attachment_path)
+        part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        msg.attach(part)
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
+        server.send_message(msg)
+
+
 def handle_research_task(user_input):
-    """Handle research tasks - search web and email results."""
+    """Handle research tasks - search web, create Word doc, email as attachment."""
     print("Searching with Grok + Perplexity...")
     raw_results = research_with_both(user_input)
 
@@ -252,10 +358,25 @@ def handle_research_task(user_input):
     subject_match = re.search(r'subject[:\s]+"?([^"\n]+)"?', user_input, re.IGNORECASE)
     subject = subject_match.group(1).strip() if subject_match else f"Research Results - {date.today().strftime('%B %d, %Y')}"
 
-    print(f"Sending email to {to_address}...")
-    send_email(to_address=to_address, subject=subject, body=formatted_results)
+    print("Creating Word document...")
+    doc_path = create_word_doc(formatted_results, subject)
 
-    return f"Done! Results emailed to {to_address}\n\nPreview:\n{formatted_results[:500]}..."
+    print(f"Sending email with attachment to {to_address}...")
+    email_body = f"Please find the research results attached as a Word document.\n\nDocument: {os.path.basename(doc_path)}\nDate: {date.today().strftime('%B %d, %Y')}"
+    send_email_with_attachment(
+        to_address=to_address,
+        subject=subject,
+        body=email_body,
+        attachment_path=doc_path
+    )
+
+    # Clean up temp file
+    try:
+        os.remove(doc_path)
+    except:
+        pass
+
+    return f"Done! Research results emailed as Word document to {to_address}\n\nPreview:\n{formatted_results[:500]}..."
 
 
 def handle_multi_task(user_input, target_valid=10, max_attempts=5):
