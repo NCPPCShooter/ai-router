@@ -26,6 +26,10 @@ perplexity_client = OpenAI(api_key=get_secret("PERPLEXITY_API_KEY"), base_url="h
 SENDER_EMAIL = "kirkkeller@gmail.com"
 GMAIL_APP_PASSWORD = get_secret("GMAIL_APP_PASSWORD")
 
+# Initialize xAI native client for web search
+from xai_sdk import Client as XAIClient
+xai_client = XAIClient(api_key=get_secret("XAI_API_KEY"))
+
 # Email config
 SENDER_EMAIL = "kirkkeller@gmail.com"
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
