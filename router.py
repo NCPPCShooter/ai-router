@@ -17,6 +17,7 @@ from xai_sdk.tools import web_search as grok_web_search
 xai_client = XAIClient(api_key=os.getenv("XAI_API_KEY"))
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 github_client = OpenAI(api_key=os.getenv("GITHUB_TOKEN"), base_url="https://models.github.ai/inference")
+perplexity_client = OpenAI(api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https://api.perplexity.ai")
 
 # Email config
 SENDER_EMAIL = "kirkkeller@gmail.com"
@@ -28,7 +29,7 @@ ROUTING_PROMPT = """You are an AI task router. Analyze the task and respond with
 - grok: current events, live web search, news, recent information
 - openai: creative writing, broad general knowledge tasks
 - github: ANY coding task, code generation, code review, debugging, technical documentation, programming questions, software development, writing functions or scripts
-- research: search the web for contact information, company details, recruiter info, or business research then email results
+- research: search for contact information, company details, recruiter info, business research, or any research requiring cited sources then email results
 - multi: search for JOB OPENINGS or JOB POSTINGS then format and email results
 
 Respond with ONLY one word. Nothing else."""
@@ -185,6 +186,29 @@ def research_with_grok(user_input):
     print("--- END DEBUG ---\n")
     return result
 
+def research_with_perplexity(user_input):
+    """Use Perplexity for research tasks with cited sources."""
+    response = perplexity_client.chat.completions.create(
+        model="sonar",
+        messages=[
+            {"role": "system", "content": "You are a research assistant. Search the web thoroughly and provide detailed, accurate results with citations and sources for every claim."},
+            {"role": "user", "content": user_input}
+        ]
+    )
+    result = response.choices[0].message.content
+    print(f"\n--- DEBUG: Perplexity response (first 500 chars) ---")
+    print(result[:500])
+    print("--- END DEBUG ---\n")
+    return result
+
+def research_with_both(user_input):
+    """Use Grok for discovery, Perplexity for verification."""
+    print("  Discovery search with Grok...")
+    grok_results = research_with_grok(user_input)
+    print("  Verification search with Perplexity...")
+    perplexity_results = research_with_perplexity(user_input)
+    return f"GROK FINDINGS:\n{grok_results}\n\nPERPLEXITY VERIFIED:\n{perplexity_results}"
+
 def format_with_claude(jobs_with_links, user_input):
     """Use Claude to format validated jobs into a clean email."""
     jobs_text = json.dumps(jobs_with_links, indent=2)
@@ -223,11 +247,14 @@ def send_email(to_address, subject, body):
 
 def handle_research_task(user_input):
     """Handle research tasks - search web and email results."""
-    print("Searching for information with Grok...")
-    raw_results = research_with_grok(user_input)
+    print("Searching with Grok + Perplexity...")
+    raw_results = research_with_both(user_input)
 
     print("Formatting results with Claude...")
-    formatted_results = format_with_claude(raw_results, user_input)
+    formatted_results = format_with_claude(
+        raw_results,
+        user_input + "\n\nNote: Results include both Grok discovery findings and Perplexity verified citations. Where they agree, treat as confirmed. Where they differ, note the discrepancy. Prioritize Perplexity citations as more reliable."
+    )
 
     # Extract email address from prompt if present
     import re
