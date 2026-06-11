@@ -237,7 +237,7 @@ def format_research_with_claude(raw_results, user_input):
         max_tokens=4096,
         messages=[
             {"role": "user", "content": f"""Format the following research findings into a clear, 
-professional document. This is NOT a job search — it is a research task.
+professional document. This is NOT a job search - it is a research task.
 
 Format it as a proper briefing document with:
 - Clear sections and headers
