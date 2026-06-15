@@ -1,0 +1,157 @@
+AI Router — SQLite Deduplication Layer Architecture
+=====================================================
+Defined: June 15, 2026
+Project:  C:\Users\kirkk\Projects\ai-router
+Repo:     github.com/NCPPCShooter/ai-router
+
+
+OVERVIEW
+--------
+Rather than emailing Cindy a full digest of job search results each morning,
+the router now stores all parsed job postings in a local SQLite database and
+sends her a short notification email summarizing how many net-new postings
+were found that day.
+
+The database is the source of truth. The email is just a daily signal.
+
+
+ARCHITECTURE
+------------
+
+  Windows Task Scheduler (6 AM daily)
+        |
+        v
+  scheduled_search.py
+        |
+        |-- loads prompt files from Job-Search-Prompts repo
+        |
+        |-- calls search_with_grok(prompt)  [router.py]
+        |       |
+        |       v
+        |   Grok (xAI native SDK, live web search)
+        |   returns raw free-form text of job listings
+        |
+        |-- calls store_jobs(raw_text, source)  [job_db.py]
+        |       |
+        |       |-- parse_jobs_from_grok()
+        |       |       parses numbered list into structured job dicts
+        |       |       extracts: title, company, url, location, salary
+        |       |
+        |       |-- _make_fingerprint(title, company, url)
+        |       |       SHA-256 hash for deduplication
+        |       |
+        |       |-- INSERT or SKIP (if fingerprint already in DB)
+        |       |
+        |       v
+        |   Returns summary: { parsed, new, duplicate, new_jobs }
+        |
+        |-- build_notification_email(results, run_date)
+        |       builds short email: X new postings found, bulleted list
+        |
+        v
+  send_email()  [router.py]
+        |
+        v
+  cindyrkeller@gmail.com
+  Subject: "Job Search Update — X New Postings — June 15, 2026"
+
+
+FILES
+-----
+
+  job_db.py               New — SQLite module (standalone, no router dependency)
+  scheduled_search.py     Updated — uses job_db instead of digest email
+  data/job_postings.db    Auto-created on first run (SQLite database file)
+  logs/search_log.txt     Existing — logging unchanged
+
+
+DATABASE SCHEMA
+---------------
+
+  Table: job_postings
+
+  Column        Type     Notes
+  ----------    -------  -----------------------------------------------
+  id            INTEGER  Primary key, auto-increment
+  fingerprint   TEXT     SHA-256 of (title + company + url), UNIQUE
+  title         TEXT     Job title
+  company       TEXT     Company name
+  url           TEXT     Job posting URL (if available)
+  location      TEXT     Location / Remote
+  salary        TEXT     Salary range (if listed)
+  source        TEXT     'US Search' or 'Global Search'
+  raw_snippet   TEXT     Raw text block from Grok (capped at 2000 chars)
+  date_found    TEXT     ISO date: YYYY-MM-DD
+  created_at    TEXT     ISO datetime of insert
+
+
+DEDUPLICATION LOGIC
+-------------------
+
+  Fingerprint = SHA-256( lower(title) + "|" + lower(company) + "|" + lower(url) )
+
+  - If fingerprint already exists in DB → skip (duplicate)
+  - If fingerprint is new → insert record
+  - A job reposted at a new URL is treated as a new posting (correct behavior)
+  - Comparison is case-insensitive and whitespace-normalized
+
+
+EMAIL BEHAVIOR (NEW)
+--------------------
+
+  OLD: Full digest email with all job results formatted by Claude
+  NEW: Short notification email only
+
+  Email contains:
+    - Count of new postings added today
+    - Count of duplicates skipped
+    - Running total in the database
+    - Bulleted list of net-new postings (title, company, location, salary, url)
+    - If zero new: plain statement that all results were already seen
+
+  Subject line example:
+    "Job Search Update — 7 New Postings — June 15, 2026"
+    "Job Search Update — 0 New Postings — June 15, 2026"
+
+
+QUERY HELPERS (job_db.py)
+--------------------------
+
+  init_db()                     Create DB and table if not exists
+  store_jobs(raw, source)       Parse + dedup + insert; returns summary dict
+  get_all_jobs(limit=100)       Most recent postings
+  get_jobs_by_date(date)        Postings found on a specific date
+  get_total_count()             Total unique postings in DB
+  get_db_path()                 Returns resolved path to .db file
+
+  CLI quick-check:
+    python job_db.py
+    → prints DB path, total count, today's postings
+
+
+DEPLOYMENT STEPS
+----------------
+
+  1. Copy job_db.py          → C:\Users\kirkk\Projects\ai-router\
+  2. Replace scheduled_search.py  → C:\Users\kirkk\Projects\ai-router\
+  3. python job_db.py             (verify DB initializes cleanly)
+  4. python scheduled_search.py   (manual test run)
+  5. python job_db.py             (verify postings were stored)
+  6. git add job_db.py scheduled_search.py
+     git commit -m "Add SQLite dedup layer; switch to notification-only email"
+     git push
+
+  The data\ folder is created automatically on first run.
+  No manual database setup required.
+
+
+FUTURE CONSIDERATIONS
+---------------------
+
+  - Streamlit viewer tab: browse/filter DB postings by date, source, company
+  - router.py handle_multi_task: wire to store_jobs instead of digest email
+    (currently only scheduled_search.py uses the DB layer)
+  - Export to Excel: dump job_postings table for Cindy to filter/sort
+  - Purge old records: scheduled cleanup of postings older than N days
+  - Parser tuning: if parsed=0 after a run, capture Grok's raw output
+    and adjust regex patterns in parse_jobs_from_grok() to match
