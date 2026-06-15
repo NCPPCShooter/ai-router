@@ -1,10 +1,36 @@
 NextSteps
 
-The Migration Plan
+cat > ~/ai-router/NextSteps.yml << 'EOF'
+NextSteps:
 
-Install Python, Git, VS Code on the mini PC
-Clone your repos from GitHub
-Set up environment variables and API keys
-Move Task Scheduler jobs over - Cron jobs
-Test everything runs correctly
-Optional — point your domain to it for Streamlit
+Completed Today (June 15, 2026):
+  - Built SQLite deduplication layer (job_db.py)
+  - Switched from digest email to notification-only email
+  - Set up Ubuntu server (192.168.1.35) with VS Code Remote SSH
+  - Installed Python venv and all dependencies
+  - Configured API keys in .env loading via .bashrc
+  - Cloned Job-Search-Prompts repo to Ubuntu
+  - Built Cindy's Job Board (cindy_app.py) running at http://192.168.1.35:8502
+  - Built resume/cover letter tailor engine (tailor.py)
+  - Tuned Grok output parser to extract title, company, location, salary
+  - Added LinkedIn URL fallback via build_verified_search_urls
+  - Fixed all None errors in scheduled_search.py
+  - Job board showing postings with working links
+
+Remaining Tasks:
+  - Set up cron job to replace Windows Task Scheduler (6 AM daily)
+  - Auto-start cindy_app.py on Ubuntu boot (systemd service)
+  - Add global search prompt to Job-Search-Prompts repo and re-enable
+  - Test tailor resume pipeline end to end
+  - Fix status column persistence in job board (Interested/Applied/Skipped)
+  - Update NextSteps.yml after each session
+  - Consider NAS integration for output files when hardware arrives
+
+Migration Plan (Original):
+  - Install Python, Git, VS Code on the mini PC - DONE
+  - Clone repos from GitHub - DONE
+  - Set up environment variables and API keys - DONE
+  - Move Task Scheduler to Cron jobs - PENDING
+  - Test everything runs correctly - IN PROGRESS
+  - Optional: point domain to it for Streamlit - FUTURE
+  - Optional: set up NAS for file storage - FUTURE
