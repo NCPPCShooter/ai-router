@@ -1,145 +1,230 @@
+"""
+scheduled_search.py — Daily job search runner for Cindy.
+
+Runs via Windows Task Scheduler at 6 AM.
+Logs to:  C:\\Users\\kirkk\\Projects\\ai-router\\logs\\search_log.txt
+
+NEW BEHAVIOR (SQLite dedup layer):
+  - Parses raw Grok results and stores net-new postings to SQLite DB
+  - Sends Cindy a SHORT notification email: "X new postings found today"
+  - No more full digest emails — the DB is the source of truth
+"""
+
 import os
 import sys
-import time
+import logging
 from datetime import date, datetime
 
-# Add the router directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ---------------------------------------------------------------------------
+# Path setup — must come before local imports
+# ---------------------------------------------------------------------------
 
-from router import handle_multi_task
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
 
-# Log file location
-LOG_DIR = r"C:\Users\kirkk\Projects\ai-router\logs"
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+LOG_DIR  = os.path.join(BASE_DIR, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "search_log.txt")
+os.makedirs(LOG_DIR, exist_ok=True)
 
-# Job search prompts to run each morning
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Local imports
+# ---------------------------------------------------------------------------
+
+from router import search_with_grok, send_email   # existing router functions
+from job_db import store_jobs, get_total_count     # new dedup layer
+
+# ---------------------------------------------------------------------------
+# Search definitions
+# ---------------------------------------------------------------------------
+
+def _read_prompt(filename: str) -> str:
+    """Read a prompt file from the Job-Search-Prompts repo."""
+    path = os.path.join(
+        r"C:\Users\kirkk\Projects\Job-Search-Prompts", "searches", filename
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().replace("###END###", "").strip()
+
+
 SEARCHES = [
     {
-        "name": "Cindy - US Search",
-        "prompt": open(r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches\sr-sourcing-manager-prompt.txt").read().replace("###END###", "").strip()
+        "name":        "US Search",
+        "prompt_file": "sr-sourcing-manager-prompt.txt",
     },
-    # Uncomment below to also run global search each morning
-    # {
-    #     "name": "Cindy - Global Search",
-    #     "prompt": open(r"C:\Users\kirkk\Projects\Job-Search-Prompts\searches\sr-sourcing-manager-global-prompt.txt").read().replace("###END###", "").strip()
-    # },
+    {
+        "name":        "Global Search",
+        "prompt_file": "sr-sourcing-manager-global-prompt.txt",
+    },
 ]
 
+# ---------------------------------------------------------------------------
+# Notification email builder
+# ---------------------------------------------------------------------------
 
-def write_log(message, also_print=True):
-    """Write a message to the log file and optionally print it."""
-    os.makedirs(LOG_DIR, exist_ok=True)
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(message + "\n")
-    if also_print:
-        print(message)
+def build_notification_email(results_by_search: list[dict], run_date: str) -> str:
+    """
+    Build a concise notification email body.
 
+    results_by_search: list of dicts, one per search:
+        { name, new, duplicate, parsed, new_jobs }
+    """
+    total_new   = sum(r["new"]       for r in results_by_search)
+    total_dupes = sum(r["duplicate"] for r in results_by_search)
+    db_total    = get_total_count()
 
-def run_scheduled_searches():
-    now = datetime.now().strftime("%B %d, %Y - %I:%M %p")
-    
-    write_log("\n" + "=" * 51)
-    write_log(f"AI Job Search Log - {now}")
-    write_log("=" * 51)
+    lines = [
+        f"Hi Cindy,",
+        f"",
+        f"Your daily job search ran this morning ({run_date}).",
+        f"",
+        f"{'─' * 44}",
+        f"  New postings added today:   {total_new}",
+        f"  Already seen (duplicates):  {total_dupes}",
+        f"  Total in your database:     {db_total}",
+        f"{'─' * 44}",
+        f"",
+    ]
 
-    total_start = time.time()
-
-    for search in SEARCHES:
-        write_log(f"\nRunning: {search['name']}")
-        write_log("-" * 30)
-        
-        search_start = time.time()
-        
-        try:
-            # Monkey-patch handle_multi_task to capture job results for logging
-            result = handle_multi_task_logged(search['prompt'], search['name'])
-            elapsed = round(time.time() - search_start, 1)
-            write_log(f"  Completed in {elapsed} seconds")
-            write_log(f"  Status: Success")
-            
-        except Exception as e:
-            elapsed = round(time.time() - search_start, 1)
-            write_log(f"  ERROR after {elapsed} seconds: {str(e)}")
-
-    total_elapsed = round(time.time() - total_start, 1)
-    write_log(f"\nAll searches complete in {total_elapsed} seconds.")
-    write_log("=" * 51 + "\n")
-
-
-def handle_multi_task_logged(user_input, search_name):
-    """Wrapper around handle_multi_task that logs progress."""
-    import re
-    from router import (
-        search_with_grok, parse_jobs_from_grok, build_verified_search_urls,
-        validate_url, format_with_claude, send_email
-    )
-    from datetime import date
-
-    exclude_companies = []
-    if "First Citizens" in user_input:
-        exclude_companies = ["First Citizens", "First Citizens Bank & Trust"]
-
-    validated_jobs = []
-    attempt = 0
-    seen_companies = set()
-    target_valid = 10
-    max_attempts = 5
-
-    while len(validated_jobs) < target_valid and attempt < max_attempts:
-        attempt += 1
-        write_log(f"  Search attempt {attempt}/{max_attempts}...")
-
-        raw_results = search_with_grok(user_input, exclude_companies)
-        jobs = parse_jobs_from_grok(raw_results)
-
-        write_log(f"  Found {len(jobs)} raw listings, validating...")
-
-        for job in jobs:
-            company_key = job.get("company", "").lower().strip()
-            if company_key in seen_companies:
+    if total_new == 0:
+        lines += [
+            "No new postings were found today — all results were already in",
+            "your database from a previous search.",
+            "",
+        ]
+    else:
+        lines += [
+            f"Here's what was added today:",
+            "",
+        ]
+        for search_result in results_by_search:
+            if search_result["new"] == 0:
                 continue
-            if any(exc.lower() in company_key for exc in exclude_companies):
-                continue
+            lines.append(f"  {search_result['name']} ({search_result['new']} new):")
+            for job in search_result["new_jobs"]:
+                title   = job.get("title",    "Unknown Title")[:60]
+                company = job.get("company",  "Unknown Company")[:50]
+                loc     = job.get("location", "")[:40]
+                sal     = job.get("salary",   "")
+                url     = job.get("url",      "")
 
-            search_urls = build_verified_search_urls(
-                job.get("title", ""),
-                job.get("company", "")
-            )
+                lines.append(f"    • {title}")
+                lines.append(f"      {company}" + (f" | {loc}" if loc else ""))
+                if sal:
+                    lines.append(f"      {sal}")
+                if url:
+                    lines.append(f"      {url}")
+                lines.append("")
 
-            verified_urls = {}
-            for platform, url in search_urls.items():
-                if validate_url(url):
-                    verified_urls[platform] = url
+    lines += [
+        "Kirk's AI Router added these to your job database automatically.",
+        "",
+        "Good luck today!",
+        "— AI Router",
+    ]
 
-            if verified_urls:
-                job["search_links"] = verified_urls
-                job["link_status"] = "✅ Verified"
-                validated_jobs.append(job)
-                seen_companies.add(company_key)
-                write_log(f"  ✅ {job.get('company')} - {job.get('title')}")
-            else:
-                write_log(f"  ⚠️  Skipped {job.get('company')} - no valid links")
+    return "\n".join(lines)
 
-            if len(validated_jobs) >= target_valid:
-                break
 
-        write_log(f"  Progress: {len(validated_jobs)}/{target_valid} verified jobs")
+# ---------------------------------------------------------------------------
+# Per-search runner
+# ---------------------------------------------------------------------------
 
-    if not validated_jobs:
-        write_log("  ❌ No verified jobs found after all attempts")
-        return "No verified job listings found."
+def run_search(search_def: dict) -> dict:
+    """
+    Run a single search:
+      1. Load prompt
+      2. Call Grok for raw results
+      3. Store to SQLite (dedup happens here)
+      4. Return store_jobs summary dict + search name
+    """
+    name = search_def["name"]
+    log.info(f"Starting: {name}")
 
-    write_log(f"\n  Formatting {len(validated_jobs)} results with Claude...")
-    formatted_results = format_with_claude(validated_jobs, user_input)
+    try:
+        prompt = _read_prompt(search_def["prompt_file"])
+    except FileNotFoundError as e:
+        log.error(f"Prompt file not found for {name}: {e}")
+        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
 
-    write_log(f"  Sending email to cindyrkeller@gmail.com...")
-    send_email(
-        to_address="cindyrkeller@gmail.com",
-        subject=f"{search_name} - {date.today().strftime('%B %d, %Y')}",
-        body=formatted_results
-    )
-    write_log(f"  ✅ Email delivered successfully")
-    return f"Done! {len(validated_jobs)} jobs emailed."
+    # --- Step 1: Grok search ---
+    log.info(f"  Calling Grok...")
+    try:
+        raw_text = search_with_grok(prompt)
+        log.info(f"  Grok returned {len(raw_text)} chars")
+    except Exception as e:
+        log.error(f"  Grok search failed for {name}: {e}")
+        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
+
+    # --- Step 2: Store + dedup ---
+    log.info(f"  Storing to SQLite (dedup)...")
+    try:
+        summary = store_jobs(raw_text, source=name, verbose=True)
+        summary["name"] = name
+        log.info(
+            f"  {name}: parsed={summary['parsed']}  "
+            f"new={summary['new']}  dupes={summary['duplicate']}"
+        )
+    except Exception as e:
+        log.error(f"  DB store failed for {name}: {e}")
+        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def run_scheduled_searches() -> None:
+    run_date = date.today().strftime("%B %d, %Y")
+    log.info("=" * 60)
+    log.info(f"Daily job search starting — {run_date}")
+    log.info("=" * 60)
+
+    results = []
+    for search_def in SEARCHES:
+        result = run_search(search_def)
+        results.append(result)
+
+    # --- Build and send notification email ---
+    total_new = sum(r["new"] for r in results)
+    subject   = f"Job Search Update — {total_new} New Posting{'s' if total_new != 1 else ''} — {run_date}"
+    body      = build_notification_email(results, run_date)
+
+    log.info(f"Sending notification email: {subject}")
+    try:
+        send_email(
+            to_address="cindyrkeller@gmail.com",
+            subject=subject,
+            body=body,
+        )
+        log.info("Notification email sent successfully.")
+    except Exception as e:
+        log.error(f"Failed to send notification email: {e}")
+
+    # --- Final summary ---
+    log.info("=" * 60)
+    for r in results:
+        log.info(f"  {r['name']}: {r['new']} new / {r['duplicate']} dupes / {r['parsed']} parsed")
+    log.info(f"  Total new postings today: {total_new}")
+    log.info(f"  Total in DB: {get_total_count()}")
+    log.info("=" * 60)
+    log.info("Run complete.")
 
 
 if __name__ == "__main__":
