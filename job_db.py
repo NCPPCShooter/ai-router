@@ -88,28 +88,24 @@ def _make_fingerprint(title: str, company: str, url: str = "") -> str:
 
 def parse_jobs_from_grok(raw_text: str, source: str = "Search") -> list[dict]:
     """
-    Parse Grok's structured job search output into a list of job dicts.
-
-    Grok returns results as numbered items in this format:
-        1. **Job Title**
-           **Company**: Company Name
-           **Salary**: $140,000–$160,000
-           **Location**: Remote U.S.
-           **Description**: ...
-           **URL**: https://...  (if present)
+    Parse Grok's job search output. Handles multiple formats:
+      Format A: **1. Job Title**  (number+title in bold on first line)
+      Format B: **Job Title**: Actual Title  (labeled field)
+      Format C: **1. Job Title – Company**  (title and company combined)
+    Fields use either **Field**: or **Field:** format.
     """
     jobs = []
 
-    # Split on numbered list items (1. 2. 3. etc.)
-    blocks = re.split(r'\n(?=\d+[\.\)]\s)', raw_text.strip())
+    # Split on bold-numbered items (**1. or **2. etc.) or plain numbered items
+    blocks = re.split(r'\n(?=\*\*\d+[\.\)]|\d+[\.\)]\s)', raw_text.strip())
 
     for block in blocks:
         block = block.strip()
         if not block:
             continue
 
-        # Skip Grok's intro paragraph (no leading number)
-        if not re.match(r'^\d+[\.\)]', block):
+        # Skip intro paragraphs — must start with a number or **number
+        if not re.match(r'^(\*\*)?(\d+)[\.\)]', block):
             continue
 
         job = {
@@ -126,41 +122,61 @@ def parse_jobs_from_grok(raw_text: str, source: str = "Search") -> list[dict]:
         if not lines:
             continue
 
-        # --- Title: first line, strip leading number and bold markers ---
-        first_line = re.sub(r'^\d+[\.\)]\s*', '', lines[0])
-        title_match = re.search(r'\*\*([^\*]+)\*\*', first_line)
-        job["title"] = title_match.group(1).strip() if title_match else first_line.strip()[:120]
+        # --- Title from first line ---
+        first_line = re.sub(r'^(\*\*)?(\d+)[\.\)]\s*\*?\*?', '', lines[0]).strip()
+        first_line = first_line.strip('*').strip()
 
-        # --- Structured fields: **Field**: Value ---
+        # Check for "Job Title": label format
+        title_label = re.search(r'(?:Job Title)\s*[:\-]\s*(.+)', first_line, re.IGNORECASE)
+        if title_label:
+            job["title"] = title_label.group(1).strip()[:120]
+        # Check for "Title – Company" format on first line
+        elif ' – ' in first_line or ' - ' in first_line:
+            parts = re.split(r'\s[–-]\s', first_line, maxsplit=1)
+            job["title"] = parts[0].strip()[:120]
+            if len(parts) > 1 and not job["company"]:
+                job["company"] = parts[1].strip()[:100]
+        else:
+            job["title"] = first_line[:120]
+
+        # --- Structured fields: handles both **Field**: and **Field:** ---
         field_pattern = re.compile(
-            r'\*\*(Company|Salary|Location|URL|Link|Apply|Website)\*\*\s*[:\-]\s*(.+)',
+            r'\*\*(Job Title|Company|Salary|Location|URL|Link|Apply|Website)\*?\*?\s*[:\-]\s*(.+)',
             re.IGNORECASE
         )
-        for line in lines[1:]:
+        for line in lines:
             m = field_pattern.search(line)
             if m:
-                field = m.group(1).lower()
+                field = m.group(1).lower().strip()
                 value = m.group(2).strip()
-                # Strip any trailing bold markers or parenthetical notes
-                value = re.sub(r'\*\*.*$', '', value).strip()
-                value = re.sub(r'\(.*?\)$', '', value).strip()
+                value = re.sub(r'\*+', '', value).strip()
+                value = re.sub(r'\s*\(.*?\)\s*$', '', value).strip()
 
-                if field == "company"              and not job["company"]:
+                if field == "job title"                            and not job["title"]:
+                    job["title"]    = value[:120]
+                elif field == "company"                            and not job["company"]:
                     job["company"]  = value[:100]
-                elif field == "salary"             and not job["salary"]:
+                elif field == "salary"                             and not job["salary"]:
                     job["salary"]   = value[:50]
-                elif field == "location"           and not job["location"]:
+                elif field == "location"                           and not job["location"]:
                     job["location"] = value[:100]
                 elif field in ("url", "link", "apply", "website") and not job["url"]:
                     job["url"]      = value[:500]
 
-        # --- URL fallback: scan entire block for https:// ---
-        if not job["url"]:
-            url_match = re.search(r'https?://[^\s\)\"\'\*]+', block)
-            if url_match:
-                job["url"] = url_match.group(0).strip()[:500]
+        # --- Company fallback: "Title – Company" in subsequent lines ---
+        if not job["company"]:
+            for line in lines[1:4]:
+                dash_match = re.search(r'[–-]\s*([A-Z][^\n\|,\*]{2,50})', line)
+                if dash_match:
+                    job["company"] = dash_match.group(1).strip()[:100]
+                    break
 
-        # Only keep if we have at least a title
+        # --- URL fallback ---
+        if not job["url"] and job["title"] and job["company"]:
+            from router import build_verified_search_urls
+            search_urls = build_verified_search_urls(job["title"], job["company"])
+            job["url"] = search_urls.get("LinkedIn", "")
+
         if job["title"]:
             jobs.append(job)
 

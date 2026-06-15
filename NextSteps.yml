@@ -1,36 +1,228 @@
 NextSteps
 
-cat > ~/ai-router/NextSteps.yml << 'EOF'
-NextSteps:
+AI Router & Cindy Job Search — Complete Project History
+=========================================================
+Compiled: June 15, 2026
 
-Completed Today (June 15, 2026):
-  - Built SQLite deduplication layer (job_db.py)
-  - Switched from digest email to notification-only email
-  - Set up Ubuntu server (192.168.1.35) with VS Code Remote SSH
-  - Installed Python venv and all dependencies
-  - Configured API keys in .env loading via .bashrc
-  - Cloned Job-Search-Prompts repo to Ubuntu
-  - Built Cindy's Job Board (cindy_app.py) running at http://192.168.1.35:8502
-  - Built resume/cover letter tailor engine (tailor.py)
-  - Tuned Grok output parser to extract title, company, location, salary
-  - Added LinkedIn URL fallback via build_verified_search_urls
-  - Fixed all None errors in scheduled_search.py
-  - Job board showing postings with working links
 
-Remaining Tasks:
-  - Set up cron job to replace Windows Task Scheduler (6 AM daily)
-  - Auto-start cindy_app.py on Ubuntu boot (systemd service)
-  - Add global search prompt to Job-Search-Prompts repo and re-enable
-  - Test tailor resume pipeline end to end
-  - Fix status column persistence in job board (Interested/Applied/Skipped)
-  - Update NextSteps.yml after each session
-  - Consider NAS integration for output files when hardware arrives
+═══════════════════════════════════════════════════════════
+PHASE 1 — FOUNDATIONS
+Early June 2026
+═══════════════════════════════════════════════════════════
 
-Migration Plan (Original):
-  - Install Python, Git, VS Code on the mini PC - DONE
-  - Clone repos from GitHub - DONE
-  - Set up environment variables and API keys - DONE
-  - Move Task Scheduler to Cron jobs - PENDING
-  - Test everything runs correctly - IN PROGRESS
-  - Optional: point domain to it for Streamlit - FUTURE
-  - Optional: set up NAS for file storage - FUTURE
+Session: Rally & Consulting Work
+  - Created Rally Software overview document (Markdown, targeting
+    middle-to-senior management)
+  - Built a Rally Excel add-in query using IN syntax for retrieving
+    epics by ObjectID
+
+Session: AI Router — First Steps
+  - Kirk asked about choosing between AI tools for prompting
+  - Decided to build a multi-AI routing system in Python
+  - Set up VS Code with GitHub Copilot Chat (Ctrl+Alt+I)
+  - Located and configured Anthropic API key
+
+Session: AI Router — Core Build
+  - Built router.py with natural language routing logic
+  - Established six routes:
+      claude   → reasoning, writing, analysis
+      grok     → live web search (xAI native SDK)
+      openai   → general/creative tasks
+      github   → coding (GitHub Models GPT-4.1)
+      research → Grok + Perplexity combined, outputs Word doc
+      multi    → full job search pipeline for Cindy
+  - Learned: xai_client must be initialized at module level
+  - Learned: Grok live web search requires native xAI SDK with
+    tools=[grok_web_search()], NOT the OpenAI-compatible API
+  - Implemented ###END### sentinel for multi-line prompts
+  - Stored all API keys as Windows User Environment Variables
+  - Built format_with_claude and format_research_with_claude as
+    separate functions to prevent cross-contamination
+
+Session: Job Search Pipeline
+  - Built handle_multi_task for Cindy's job search
+  - Implemented parse_jobs_from_grok to extract structured data
+  - Built build_verified_search_urls (LinkedIn, Indeed, Glassdoor)
+  - Built validate_url to confirm links resolve before including
+  - Integrated format_with_claude for email digest formatting
+  - Configured email delivery to cindyrkeller@gmail.com
+
+Session: Scheduled Search
+  - Built scheduled_search.py for automated daily runs
+  - Implemented logging to logs/search_log.txt
+  - Configured Windows Task Scheduler at 6 AM daily
+  - Added US and Global search variants
+  - Bumped target results from 5 to 10 per search
+  - Separated US and Global into distinct emails with clear subjects
+
+Session: Research Route
+  - Added RESEARCH route separate from MULTI
+  - Research uses Grok + Perplexity combined
+  - Outputs Word document (.docx) as email attachment
+  - python-docx used for document generation
+  - Added handle_research_task and format_research_with_claude
+
+Session: Streamlit UI
+  - Built app.py as browser interface
+  - Quick prompt buttons load from prompts/ subfolder
+  - Relative paths using os.path.dirname for Streamlit Cloud compat
+  - Session state management (pending_input) for Streamlit rerun cycle
+  - Download button for results
+  - Built launch.bat for local startup
+
+Session: Streamlit Cloud Deployment
+  - Deployed to ai-router-kirk.streamlit.app
+  - Configured Streamlit Cloud secrets manager
+  - Built get_secret() function: tries st.secrets first, falls back
+    to os.getenv()
+  - PyInstaller launcher attempted but abandoned (runaway browser
+    window spawning)
+  - Settled on Streamlit Cloud URL as desktop shortcut for Cindy
+
+Key lessons from Phase 1:
+  - API keys must NEVER appear in code or terminal output
+  - Use dir .env (not type .env) to verify file existence
+  - VS Code must be fully restarted after environment variable changes
+  - Prefer complete file replacements over partial edits (avoids
+    IndentationError and SyntaxError from manual triple-quote edits)
+
+
+═══════════════════════════════════════════════════════════
+PHASE 2 — UBUNTU SERVER SETUP
+June 12-14, 2026
+═══════════════════════════════════════════════════════════
+
+Session: Ubuntu Installation on Old iMac (Late 2013, iMac14,3)
+  - Downloaded Ubuntu 24.04 Desktop ISO
+  - Created bootable USB with Rufus
+  - Used diskpart on Windows side to prepare drive
+  - Formatted thumb drive with GNOME Disks (FAT32)
+  - Installed Ubuntu — selected third-party drivers during setup
+  - WiFi issue: Broadcom BCM4360 chip not working out of the box
+  - Installed firmware-b43-installer via Ethernet
+  - Installed bcmwl-kernel-source via restricted/multiverse repos
+  - WiFi working after reboot
+
+Session: GitHub Setup on Ubuntu
+  - Installed Git on Ubuntu
+  - Generated SSH key (ed25519)
+  - Added SSH key to GitHub account
+  - Cloned ai-router repo to ~/ai-router
+  - Cloned Job-Search-Prompts repo to ~/Job-Search-Prompts
+  - Confirmed both repos in sync with Windows versions
+
+
+═══════════════════════════════════════════════════════════
+PHASE 3 — SQLITE DEDUP LAYER & CINDY'S JOB BOARD
+June 15, 2026
+═══════════════════════════════════════════════════════════
+
+Session: Architecture Design
+  - Decided to replace full digest email with DB + notification email
+  - Cindy gets a short email: "X new postings found today"
+  - DB becomes the source of truth for all job postings
+  - Designed SQLite schema: job_postings table with fingerprint
+    deduplication (SHA-256 of title + company + url)
+
+Files Built:
+  job_db.py
+    - SQLite module, no router dependency
+    - init_db(), store_jobs(), get_all_jobs(), get_jobs_by_date()
+    - get_total_count(), get_db_path()
+    - parse_jobs_from_grok() — tuned to Grok's actual output format
+    - CLI: python job_db.py (status) / python job_db.py --clear
+    - DB location: ~/ai-router/data/job_postings.db
+
+  scheduled_search.py (rewritten)
+    - Linux-compatible paths (os.path.expanduser)
+    - Calls store_jobs() instead of building digest
+    - build_verified_search_urls() wired in as URL fallback
+    - Sends notification-only email with new/dupe counts
+    - Logging via Python logging module to logs/search_log.txt
+
+  tailor.py
+    - Fetches job description from URL (with fallback to pasted text)
+    - Reads master resume + cover letter from ~/cindy/resume/
+    - Calls Claude to tailor both documents
+    - Saves tailored .docx files to ~/cindy/output/<Company>_<Date>/
+
+  cindy_app.py
+    - Streamlit job board UI
+    - Sidebar: filters by status, source, date range + stats dashboard
+    - Job cards: title, company, location, salary, date found
+    - Status buttons: Interested, Applied, Skip
+    - Tailor Resume button: URL fetch + paste fallback + Claude tailor
+    - Running at http://192.168.1.35:8502
+
+  launch_cindy.sh
+    - Starts Streamlit on port 8502, bound to 0.0.0.0
+    - Activates venv automatically
+
+Ubuntu Server Configuration:
+  - IP address: 192.168.1.35
+  - Username: kirk-keller
+  - Python venv: ~/ai-router/venv/
+  - Installed openssh-server for VS Code Remote SSH
+  - VS Code Remote SSH connected from Windows laptop
+  - API keys stored in ~/ai-router/.env
+  - .env loaded automatically via ~/.bashrc on every session
+  - Job-Search-Prompts cloned to ~/Job-Search-Prompts/
+  - Cindy's files:
+      ~/cindy/resume/Cindy_Keller_Resume_v2.docx
+      ~/cindy/resume/Cindy_Keller_Cover_Letter_Master.docx
+      ~/cindy/output/  (tailored docs saved here)
+
+Key Issues Resolved:
+  - Windows paths in scheduled_search.py → replaced with
+    os.path.expanduser("~")
+  - .env loading error (zrty command not found) → fixed by using
+    while IFS='=' read loop instead of set -a / source
+  - URLs missing from job postings → wired in build_verified_search_urls
+    from router.py as LinkedIn/Indeed/Glassdoor fallback
+  - Perplexity enrichment attempted and reverted (Perplexity cannot
+    reliably provide direct job posting URLs)
+  - NoneType errors in scheduled_search.py → added None guards
+    throughout results processing
+  - DB accumulating stale test data → added python job_db.py --clear
+
+
+═══════════════════════════════════════════════════════════
+REMAINING TASKS
+═══════════════════════════════════════════════════════════
+
+  [ ] Set up cron job on Ubuntu to replace Windows Task Scheduler (6 AM daily, activate venv, run scheduled_search.py)
+  [ ] Auto-start cindy_app.py on Ubuntu boot (systemd service)
+  [ ] Add global search prompt to Job-Search-Prompts repo and re-enable in scheduled_search.py SEARCHES list
+  [ ] Test tailor resume pipeline end to end with a real posting
+  [ ] Verify status persistence (Interested/Applied/Skipped) in DB
+  [ ] Commit all working files and push to GitHub
+  [ ] NAS integration for ~/cindy/output/ when hardware arrives
+  [ ] Consider domain/DDNS pointing to Ubuntu for remote access
+
+
+═══════════════════════════════════════════════════════════
+INFRASTRUCTURE SUMMARY
+═══════════════════════════════════════════════════════════
+
+  Windows Laptop (Kirk)
+    C:\Users\kirkk\Projects\ai-router\     ← Windows repo clone
+    C:\Users\kirkk\Projects\Job-Search-Prompts\
+    VS Code + GitHub Copilot
+
+  Ubuntu Server (192.168.1.35)
+    ~/ai-router/                           ← primary working location
+    ~/Job-Search-Prompts/
+    ~/cindy/resume/                        ← master documents
+    ~/cindy/output/                        ← tailored output
+    Streamlit job board: port 8502
+
+  GitHub
+    github.com/NCPPCShooter/ai-router
+    github.com/NCPPCShooter/Job-Search-Prompts
+
+  Streamlit Cloud (legacy, still active)
+    ai-router-kirk.streamlit.app
+
+  Network
+    Kirk's laptop, Cindy's laptop, Ubuntu server — all on same LAN
+    NAS coming soon
