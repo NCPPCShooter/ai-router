@@ -88,25 +88,28 @@ def _make_fingerprint(title: str, company: str, url: str = "") -> str:
 
 def parse_jobs_from_grok(raw_text: str, source: str = "Search") -> list[dict]:
     """
-    Parse Grok's free-form job search output into a list of job dicts.
+    Parse Grok's structured job search output into a list of job dicts.
 
-    Grok returns results as numbered items, typically in one of these formats:
-        1. **Job Title** — Company Name
-           Location | Salary | URL
-
-        or plain text blocks separated by newlines.
-
-    This parser uses a multi-pattern approach to extract what it can.
-    Fields not found are stored as empty strings; the fingerprint uses
-    whatever title+company+url are extracted.
+    Grok returns results as numbered items in this format:
+        1. **Job Title**
+           **Company**: Company Name
+           **Salary**: $140,000–$160,000
+           **Location**: Remote U.S.
+           **Description**: ...
+           **URL**: https://...  (if present)
     """
     jobs = []
 
     # Split on numbered list items (1. 2. 3. etc.)
-    blocks = re.split(r'\n(?=\d+[\.\)])', raw_text.strip())
+    blocks = re.split(r'\n(?=\d+[\.\)]\s)', raw_text.strip())
 
     for block in blocks:
-        if not block.strip():
+        block = block.strip()
+        if not block:
+            continue
+
+        # Skip Grok's intro paragraph (no leading number)
+        if not re.match(r'^\d+[\.\)]', block):
             continue
 
         job = {
@@ -116,73 +119,52 @@ def parse_jobs_from_grok(raw_text: str, source: str = "Search") -> list[dict]:
             "location":    "",
             "salary":      "",
             "source":      source,
-            "raw_snippet": block.strip()[:2000],  # cap snippet size
+            "raw_snippet": block[:2000],
         }
 
         lines = [l.strip() for l in block.split("\n") if l.strip()]
         if not lines:
             continue
 
-        # --- Title extraction ---
-        # Look for **Bold Title** pattern first
-        title_match = re.search(r'\*\*([^\*]+)\*\*', lines[0])
-        if title_match:
-            job["title"] = title_match.group(1).strip()
-        else:
-            # Fall back: strip leading number and punctuation
-            cleaned = re.sub(r'^\d+[\.\)]\s*', '', lines[0])
-            job["title"] = cleaned[:120]
+        # --- Title: first line, strip leading number and bold markers ---
+        first_line = re.sub(r'^\d+[\.\)]\s*', '', lines[0])
+        title_match = re.search(r'\*\*([^\*]+)\*\*', first_line)
+        job["title"] = title_match.group(1).strip() if title_match else first_line.strip()[:120]
 
-        # --- Company extraction ---
-        # Look for "— Company" or "at Company" or "@ Company" patterns
-        company_patterns = [
-            r'[—–-]\s*([A-Z][^\n\|,]{2,60})',          # — Company Name
-            r'\bat\s+([A-Z][^\n\|,]{2,60})',            # at Company Name
-            r'@\s*([A-Z][^\n\|,]{2,60})',               # @ Company Name
-        ]
-        for line in lines[:4]:
-            for pat in company_patterns:
-                m = re.search(pat, line)
-                if m:
-                    job["company"] = m.group(1).strip()[:100]
-                    break
-            if job["company"]:
-                break
-
-        # --- URL extraction ---
-        url_match = re.search(r'https?://[^\s\)\"\']+', block)
-        if url_match:
-            job["url"] = url_match.group(0).strip()[:500]
-
-        # --- Location extraction ---
-        loc_patterns = [
-            r'(Remote[^\n\|,]*)',                        # Remote / Remote - US
-            r'((?:US|USA|United States)[^\n\|,]*)',
-            r'([A-Z][a-z]+,\s*[A-Z]{2})',               # City, ST
-        ]
-        for line in lines:
-            for pat in loc_patterns:
-                m = re.search(pat, line, re.IGNORECASE)
-                if m:
-                    job["location"] = m.group(1).strip()[:100]
-                    break
-            if job["location"]:
-                break
-
-        # --- Salary extraction ---
-        salary_match = re.search(
-            r'\$[\d,]+[kK]?\s*[-–]\s*\$[\d,]+[kK]?|\$[\d,]+[kK]?(?:\+)?',
-            block
+        # --- Structured fields: **Field**: Value ---
+        field_pattern = re.compile(
+            r'\*\*(Company|Salary|Location|URL|Link|Apply|Website)\*\*\s*[:\-]\s*(.+)',
+            re.IGNORECASE
         )
-        if salary_match:
-            job["salary"] = salary_match.group(0).strip()[:50]
+        for line in lines[1:]:
+            m = field_pattern.search(line)
+            if m:
+                field = m.group(1).lower()
+                value = m.group(2).strip()
+                # Strip any trailing bold markers or parenthetical notes
+                value = re.sub(r'\*\*.*$', '', value).strip()
+                value = re.sub(r'\(.*?\)$', '', value).strip()
 
-        # Only keep the job if we have at least a title
+                if field == "company"              and not job["company"]:
+                    job["company"]  = value[:100]
+                elif field == "salary"             and not job["salary"]:
+                    job["salary"]   = value[:50]
+                elif field == "location"           and not job["location"]:
+                    job["location"] = value[:100]
+                elif field in ("url", "link", "apply", "website") and not job["url"]:
+                    job["url"]      = value[:500]
+
+        # --- URL fallback: scan entire block for https:// ---
+        if not job["url"]:
+            url_match = re.search(r'https?://[^\s\)\"\'\*]+', block)
+            if url_match:
+                job["url"] = url_match.group(0).strip()[:500]
+
+        # Only keep if we have at least a title
         if job["title"]:
             jobs.append(job)
 
     return jobs
-
 
 # ---------------------------------------------------------------------------
 # Core store function
@@ -227,6 +209,12 @@ def store_jobs(
                     print(f"  [DUPE]  {job['title']} @ {job['company']}")
                 continue
 
+            # Build search URL fallback if no URL found
+            if not job.get("url") and job.get("title") and job.get("company"):
+                from router import build_verified_search_urls
+                search_urls = build_verified_search_urls(job["title"], job["company"])
+                job["url"] = search_urls.get("LinkedIn", "")
+            
             # Insert new record
             conn.execute(
                 """

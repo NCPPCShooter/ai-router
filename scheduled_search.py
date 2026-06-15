@@ -14,6 +14,8 @@ import os
 import sys
 import logging
 from datetime import date, datetime
+from pathlib import Path
+from router import search_with_grok, send_email, build_verified_search_urls
 
 # ---------------------------------------------------------------------------
 # Path setup — must come before local imports
@@ -55,10 +57,8 @@ from job_db import store_jobs, get_total_count     # new dedup layer
 def _read_prompt(filename: str) -> str:
     """Read a prompt file from the Job-Search-Prompts repo."""
     path = os.path.join(
-        r"C:\Users\kirkk\Projects\Job-Search-Prompts", "searches", filename
+        os.path.expanduser("~"), "Job-Search-Prompts", "searches", filename
     )
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read().replace("###END###", "").strip()
 
 
 SEARCHES = [
@@ -66,10 +66,10 @@ SEARCHES = [
         "name":        "US Search",
         "prompt_file": "sr-sourcing-manager-prompt.txt",
     },
-    {
-        "name":        "Global Search",
-        "prompt_file": "sr-sourcing-manager-global-prompt.txt",
-    },
+#    {
+#        "name":        "Global Search",
+#        "prompt_file": "sr-sourcing-manager-global-prompt.txt",
+#    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -83,6 +83,7 @@ def build_notification_email(results_by_search: list[dict], run_date: str) -> st
     results_by_search: list of dicts, one per search:
         { name, new, duplicate, parsed, new_jobs }
     """
+    results_by_search = [r for r in results_by_search if r is not None]
     total_new   = sum(r["new"]       for r in results_by_search)
     total_dupes = sum(r["duplicate"] for r in results_by_search)
     db_total    = get_total_count()
@@ -159,31 +160,15 @@ def run_search(search_def: dict) -> dict:
         prompt = _read_prompt(search_def["prompt_file"])
     except FileNotFoundError as e:
         log.error(f"Prompt file not found for {name}: {e}")
-        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
+        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": "unknown"}
 
-    # --- Step 1: Grok search ---
+   # --- Step 1: Grok search ---
     log.info(f"  Calling Grok...")
-    try:
-        raw_text = search_with_grok(prompt)
-        log.info(f"  Grok returned {len(raw_text)} chars")
-    except Exception as e:
-        log.error(f"  Grok search failed for {name}: {e}")
-        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
+    raw_text = search_with_grok(prompt)
+    log.info(f"  Grok returned {len(raw_text)} chars")
 
-    # --- Step 2: Store + dedup ---
-    log.info(f"  Storing to SQLite (dedup)...")
-    try:
-        summary = store_jobs(raw_text, source=name, verbose=True)
-        summary["name"] = name
-        log.info(
-            f"  {name}: parsed={summary['parsed']}  "
-            f"new={summary['new']}  dupes={summary['duplicate']}"
-        )
-    except Exception as e:
-        log.error(f"  DB store failed for {name}: {e}")
-        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": str(e)}
-
-    return summary
+   # --- Step 2: Store + dedup ---
+    summary = store_jobs(raw_text, source=name, verbose=True)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +187,7 @@ def run_scheduled_searches() -> None:
         results.append(result)
 
     # --- Build and send notification email ---
-    total_new = sum(r["new"] for r in results)
+    total_new = sum(r["new"] for r in results if r is not None)
     subject   = f"Job Search Update — {total_new} New Posting{'s' if total_new != 1 else ''} — {run_date}"
     body      = build_notification_email(results, run_date)
 
@@ -220,7 +205,8 @@ def run_scheduled_searches() -> None:
     # --- Final summary ---
     log.info("=" * 60)
     for r in results:
-        log.info(f"  {r['name']}: {r['new']} new / {r['duplicate']} dupes / {r['parsed']} parsed")
+        if r is not None:
+            log.info(f"  {r['name']}: {r['new']} new / {r['duplicate']} dupes / {r['parsed']} parsed")
     log.info(f"  Total new postings today: {total_new}")
     log.info(f"  Total in DB: {get_total_count()}")
     log.info("=" * 60)
