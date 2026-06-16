@@ -255,4 +255,20 @@ Phase 4 - Workflow Improvements:
 Phase 5 - Resume Optimization:
   - A/B test two resume versions (Strategic Sourcing vs Procurement Leadership)
   - LinkedIn profile alignment with tailored resume language
+
+# ================================================================
+# TECHNICAL DEBT — Added June 16, 2026
+# ================================================================
+
+Restore URL Validation Gate (lost in SQLite migration):
+  - Old pipeline used validate_url() to check each job URL for valid
+    HTTP response codes (200, 301, 302) before storing
+  - Jobs with unresolvable URLs were skipped entirely
+  - This was a quality gate that reduced false positives
+  - New pipeline stores everything and builds LinkedIn/Indeed/Glassdoor
+    search URLs as fallback — no validation happening
+  - Restore validate_url() check in store_jobs() or run_search()
+    before inserting to DB
+  - This likely accounts for a significant portion of false positives
+    Cindy is seeing in the job board
 EOF
