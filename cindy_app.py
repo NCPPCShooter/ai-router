@@ -1,16 +1,14 @@
 """
 cindy_app.py — Cindy's Job Board
 
-A local Streamlit app that shows job postings from the SQLite DB,
-lets Cindy review and filter them, and triggers resume/cover letter
-tailoring with one click.
+Local Streamlit app showing job postings from SQLite DB.
+Lets Cindy review, filter, track status, and tailor resume/cover letter.
 
-Run:
+Run via systemd service or:
     source ~/ai-router/venv/bin/activate
     streamlit run ~/ai-router/cindy_app.py --server.port 8502
 
-Access:
-    http://192.168.1.35:8502  (from any device on the local network)
+Access: http://192.168.1.35:8502
 """
 
 import os
@@ -18,6 +16,7 @@ import sys
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import streamlit as st
 
@@ -28,7 +27,7 @@ import streamlit as st
 BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
 
-from job_db import init_db, get_all_jobs, get_jobs_by_date, get_total_count, DB_PATH
+from job_db import init_db, get_total_count, DB_PATH
 from tailor import tailor_for_job, OUTPUT_DIR
 
 # ---------------------------------------------------------------------------
@@ -43,7 +42,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS — clean, professional, easy to read
+# CSS
 # ---------------------------------------------------------------------------
 
 st.markdown("""
@@ -57,9 +56,10 @@ st.markdown("""
         border-left: 4px solid #4A90D9;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
-    .job-card.applied  { border-left-color: #28a745; }
-    .job-card.skipped  { border-left-color: #dc3545; opacity: 0.6; }
+    .job-card.applied    { border-left-color: #28a745; }
+    .job-card.skipped    { border-left-color: #dc3545; opacity: 0.6; }
     .job-card.interested { border-left-color: #fd7e14; }
+    .job-card.rejected   { border-left-color: #6f42c1; opacity: 0.6; }
     .job-title { font-size: 1.05rem; font-weight: 600; color: #1a1a2e; margin: 0; }
     .job-meta  { font-size: 0.85rem; color: #6c757d; margin-top: 4px; }
     .badge {
@@ -74,12 +74,14 @@ st.markdown("""
     .badge-interested { background: #fff3e0; color: #e65100; }
     .badge-applied    { background: #e8f5e9; color: #2e7d32; }
     .badge-skipped    { background: #fce4ec; color: #c62828; }
+    .badge-rejected   { background: #f3e5f5; color: #6a1b9a; }
     .stat-box {
         background: white;
         border-radius: 8px;
         padding: 16px;
         text-align: center;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        margin-bottom: 8px;
     }
     .stat-number { font-size: 2rem; font-weight: 700; color: #4A90D9; }
     .stat-label  { font-size: 0.8rem; color: #6c757d; margin-top: 4px; }
@@ -97,7 +99,6 @@ def get_connection():
 
 
 def ensure_status_column():
-    """Add status column to DB if it doesn't exist yet."""
     with get_connection() as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(job_postings)").fetchall()]
         if "status" not in cols:
@@ -106,7 +107,6 @@ def ensure_status_column():
 
 
 def get_filtered_jobs(status_filter=None, source_filter=None, days_back=30):
-    """Fetch jobs with optional filters."""
     init_db()
     ensure_status_column()
     cutoff = (date.today() - timedelta(days=days_back)).isoformat()
@@ -125,7 +125,6 @@ def get_filtered_jobs(status_filter=None, source_filter=None, days_back=30):
 
 
 def update_status(job_id: int, new_status: str):
-    """Update a job's status in the DB."""
     ensure_status_column()
     with get_connection() as conn:
         conn.execute(
@@ -136,43 +135,40 @@ def update_status(job_id: int, new_status: str):
 
 
 def get_stats():
-    """Return counts by status for the dashboard."""
     ensure_status_column()
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) as cnt FROM job_postings GROUP BY status"
+            "SELECT COALESCE(status,'new') as status, COUNT(*) as cnt "
+            "FROM job_postings GROUP BY status"
         ).fetchall()
     return {r["status"]: r["cnt"] for r in rows}
 
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+
+if "expanded_job"  not in st.session_state: st.session_state.expanded_job  = None
+if "tailor_job_id" not in st.session_state: st.session_state.tailor_job_id = None
+if "tailor_result" not in st.session_state: st.session_state.tailor_result = None
+if "pasted_jd"     not in st.session_state: st.session_state.pasted_jd     = {}
 
 # ---------------------------------------------------------------------------
-# Session state defaults
-# ---------------------------------------------------------------------------
-
-if "expanded_job"    not in st.session_state: st.session_state.expanded_job    = None
-if "tailor_job_id"   not in st.session_state: st.session_state.tailor_job_id   = None
-if "tailor_result"   not in st.session_state: st.session_state.tailor_result   = None
-if "pasted_jd"       not in st.session_state: st.session_state.pasted_jd       = {}
-
-# ---------------------------------------------------------------------------
-# Sidebar — filters + stats
+# Sidebar
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.image("https://img.icons8.com/color/48/briefcase.png", width=40)
-    st.title("Cindy's Job Board")
+    st.title("💼 Cindy's Job Board")
     st.caption("Powered by Kirk's AI Router")
     st.divider()
 
     st.subheader("Filters")
     status_filter = st.selectbox(
         "Status",
-        ["All", "New", "Interested", "Applied", "Skipped"],
+        ["All", "New", "Interested", "Applied", "Skipped", "Rejected"],
         index=0
     )
     days_back = st.slider("Days to show", min_value=7, max_value=90, value=30, step=7)
 
-    # Source filter — dynamic from DB
     with get_connection() as conn:
         ensure_status_column()
         sources = [r[0] for r in conn.execute(
@@ -181,51 +177,32 @@ with st.sidebar:
     source_filter = st.selectbox("Source", ["All"] + sources)
 
     st.divider()
-
-    # Stats
     st.subheader("My Progress")
-    stats = get_stats()
-    total      = sum(stats.values())
-    interested = stats.get("interested", 0)
-    applied    = stats.get("applied",    0)
-    skipped    = stats.get("skipped",    0)
-    new_count  = stats.get("new",        0)
+    stats    = get_stats()
+    total    = sum(stats.values())
+    new_c    = stats.get("new",        0)
+    inter_c  = stats.get("interested", 0)
+    app_c    = stats.get("applied",    0)
+    skip_c   = stats.get("skipped",   0)
+    rej_c    = stats.get("rejected",   0)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-number">{total}</div>
-            <div class="stat-label">Total Found</div>
-        </div>""", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-number" style="color:#28a745">{applied}</div>
-            <div class="stat-label">Applied</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    col3, col4 = st.columns(2)
-    with col3:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-number" style="color:#fd7e14">{interested}</div>
-            <div class="stat-label">Interested</div>
-        </div>""", unsafe_allow_html=True)
-    with col4:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-number" style="color:#6c757d">{skipped}</div>
-            <div class="stat-label">Skipped</div>
-        </div>""", unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f'<div class="stat-box"><div class="stat-number">{total}</div><div class="stat-label">Total Found</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="stat-box"><div class="stat-number" style="color:#28a745">{app_c}</div><div class="stat-label">Applied</div></div>', unsafe_allow_html=True)
+    c3, c4 = st.columns(2)
+    with c3:
+        st.markdown(f'<div class="stat-box"><div class="stat-number" style="color:#fd7e14">{inter_c}</div><div class="stat-label">Interested</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="stat-box"><div class="stat-number" style="color:#6f42c1">{rej_c}</div><div class="stat-label">Rejected</div></div>', unsafe_allow_html=True)
 
     st.divider()
     st.caption(f"DB: `{DB_PATH}`")
     st.caption(f"Output: `{OUTPUT_DIR}`")
 
 # ---------------------------------------------------------------------------
-# Main content
+# Main
 # ---------------------------------------------------------------------------
 
 st.header("Job Postings")
@@ -233,7 +210,7 @@ st.header("Job Postings")
 jobs = get_filtered_jobs(status_filter, source_filter, days_back)
 
 if not jobs:
-    st.info("No job postings found for the selected filters. Check back after the next scheduled search!")
+    st.info("No job postings found for the selected filters.")
     st.stop()
 
 st.caption(f"Showing {len(jobs)} posting{'s' if len(jobs) != 1 else ''}")
@@ -243,11 +220,11 @@ st.divider()
 # Job cards
 # ---------------------------------------------------------------------------
 
-for job in jobs:
+for idx, job in enumerate(jobs):
     job_id  = job["id"]
-    status  = job.get("status") or "new"
-    title   = job.get("title",   "Unknown Title")
-    company = job.get("company", "Unknown Company")
+    status  = (job.get("status") or "new").lower()
+    title   = job.get("title",    "Unknown Title")
+    company = job.get("company",  "Unknown Company")
     loc     = job.get("location", "")
     sal     = job.get("salary",   "")
     url     = job.get("url",      "")
@@ -255,100 +232,104 @@ for job in jobs:
     found   = job.get("date_found", "")
     snippet = job.get("raw_snippet", "")
 
-    badge_class = f"badge-{status}"
-    card_class  = status if status != "new" else ""
+    # Build Google fallback URL if no direct URL
+    if not url:
+        search_query = quote_plus(f"{title} {company} job")
+        url = f"https://www.google.com/search?q={search_query}"
+        url_label = "🔍 Search Google"
+    else:
+        url_label = "🔗 View Posting"
 
-    # --- Card header ---
     meta_parts = [c for c in [company, loc, sal, source] if c]
     meta_str   = "  ·  ".join(meta_parts)
 
+    # Card HTML
     st.markdown(f"""
-    <div class="job-card {card_class}">
+    <div class="job-card {status if status != 'new' else ''}">
         <p class="job-title">
             {title}
-            <span class="badge {badge_class}">{status.upper()}</span>
+            <span class="badge badge-{status}">{status.upper()}</span>
         </p>
         <p class="job-meta">{meta_str}</p>
         <p class="job-meta">Found: {found}</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Action row ---
-    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+    # Action row — unique keys using idx + job_id
+    ca, cb, cc, cd, ce, cf, cg = st.columns([1, 1, 1, 1, 1, 1, 1])
 
-    with col1:
-        if url:
-            st.markdown(f"[🔗 View Posting]({url})", unsafe_allow_html=False)
-        expand_label = "▼ Details" if st.session_state.expanded_job != job_id else "▲ Hide"
-        if st.button(expand_label, key=f"expand_{job_id}"):
-            st.session_state.expanded_job = (
-                None if st.session_state.expanded_job == job_id else job_id
-            )
+    with ca:
+        st.markdown(f"[{url_label}]({url})")
+
+    with cb:
+        expand_label = "▲ Hide" if st.session_state.expanded_job == job_id else "▼ Details"
+        if st.button(expand_label, key=f"exp_{idx}_{job_id}"):
+            st.session_state.expanded_job = None if st.session_state.expanded_job == job_id else job_id
             st.rerun()
 
-    with col2:
-        if st.button("⭐ Interested", key=f"int_{job_id}"):
+    with cc:
+        if st.button("⭐ Interested", key=f"int_{idx}_{job_id}"):
             update_status(job_id, "interested")
             st.rerun()
 
-    with col3:
-        if st.button("✅ Applied", key=f"app_{job_id}"):
+    with cd:
+        if st.button("✅ Applied", key=f"app_{idx}_{job_id}"):
             update_status(job_id, "applied")
             st.rerun()
 
-    with col4:
-        if st.button("❌ Skip", key=f"skip_{job_id}"):
+    with ce:
+        if st.button("❌ Skip", key=f"skp_{idx}_{job_id}"):
             update_status(job_id, "skipped")
             st.rerun()
 
-    with col5:
-        if st.button("✏️ Tailor Resume", key=f"tailor_{job_id}", type="primary"):
+    with cf:
+        if st.button("🚫 Rejected", key=f"rej_{idx}_{job_id}"):
+            update_status(job_id, "rejected")
+            st.rerun()
+
+    with cg:
+        if st.button("✏️ Tailor", key=f"tlr_{idx}_{job_id}", type="primary"):
             st.session_state.tailor_job_id = job_id
             st.session_state.tailor_result = None
             st.session_state.expanded_job  = job_id
             st.rerun()
 
-    # --- Expanded detail panel ---
+    # ---------------------------------------------------------------------------
+    # Expanded panel
+    # ---------------------------------------------------------------------------
+
     if st.session_state.expanded_job == job_id:
         with st.container():
             st.markdown("---")
 
-            # Job description snippet
             if snippet:
                 with st.expander("📄 Job Description Snippet", expanded=False):
                     st.text(snippet[:1500] + ("..." if len(snippet) > 1500 else ""))
 
-            # Tailor panel
             if st.session_state.tailor_job_id == job_id:
                 st.subheader("✏️ Tailor Resume & Cover Letter")
 
-                # URL override
                 url_input = st.text_input(
                     "Job Posting URL",
-                    value=url or "",
-                    key=f"url_input_{job_id}",
-                    help="Pre-filled from the database. Edit if needed."
+                    value=job.get("url", ""),
+                    key=f"url_{idx}_{job_id}",
+                    help="Edit if needed — used to fetch the full job description."
                 )
 
-                # Paste fallback
                 pasted = st.text_area(
-                    "Paste Job Description Here (used if URL fetch fails)",
+                    "Paste Job Description Here (fallback if URL fetch fails)",
                     value=st.session_state.pasted_jd.get(job_id, ""),
                     height=200,
-                    key=f"paste_{job_id}",
-                    placeholder="Paste the full job description text here as a fallback..."
+                    key=f"pst_{idx}_{job_id}",
+                    placeholder="Paste the full job description here..."
                 )
                 st.session_state.pasted_jd[job_id] = pasted
 
-                col_go, col_cancel = st.columns([1, 4])
-                with col_go:
-                    go = st.button(
-                        "🚀 Generate Documents",
-                        key=f"go_{job_id}",
-                        type="primary"
-                    )
-                with col_cancel:
-                    if st.button("Cancel", key=f"cancel_{job_id}"):
+                go_col, cancel_col = st.columns([1, 4])
+                with go_col:
+                    go = st.button("🚀 Generate Documents", key=f"go_{idx}_{job_id}", type="primary")
+                with cancel_col:
+                    if st.button("Cancel", key=f"can_{idx}_{job_id}"):
                         st.session_state.tailor_job_id = None
                         st.session_state.tailor_result = None
                         st.rerun()
@@ -363,29 +344,24 @@ for job in jobs:
                         )
                     st.session_state.tailor_result = result
 
-                # Show result
                 if st.session_state.tailor_result:
                     res = st.session_state.tailor_result
                     if res["success"]:
                         st.success("✅ Documents saved successfully!")
                         st.markdown(f"""
-                        **Resume:** `{res['resume_path']}`
+**Resume:** `{res['resume_path']}`
 
-                        **Cover Letter:** `{res['cover_path']}`
+**Cover Letter:** `{res['cover_path']}`
 
-                        **Fetch method:** {res['fetch_status']}
+**Source:** {res['fetch_status']}
                         """)
-                        # Auto-mark as Interested if still New
                         if status == "new":
                             update_status(job_id, "interested")
                             st.info("Status updated to Interested.")
                     else:
-                        st.error(f"❌ Tailoring failed: {res['error']}")
+                        st.error(f"❌ {res['error']}")
                         if "url_failed" in res.get("fetch_status", ""):
-                            st.warning(
-                                "The URL couldn't be fetched. "
-                                "Please paste the job description above and try again."
-                            )
+                            st.warning("URL fetch failed — please paste the job description above and try again.")
 
             st.markdown("---")
 
@@ -394,9 +370,8 @@ for job in jobs:
 # ---------------------------------------------------------------------------
 
 st.markdown(
-    "<br><p style='text-align:center; color:#aaa; font-size:0.8rem;'>"
-    "Kirk's AI Router · Cindy's Job Board · "
-    f"Last refreshed: {date.today().strftime('%B %d, %Y')}"
-    "</p>",
+    f"<br><p style='text-align:center;color:#aaa;font-size:0.8rem;'>"
+    f"Kirk's AI Router · Cindy's Job Board · {date.today().strftime('%B %d, %Y')}"
+    f"</p>",
     unsafe_allow_html=True
 )
