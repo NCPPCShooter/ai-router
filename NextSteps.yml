@@ -226,3 +226,33 @@ INFRASTRUCTURE SUMMARY
   Network
     Kirk's laptop, Cindy's laptop, Ubuntu server — all on same LAN
     NAS coming soon
+
+# ================================================================
+# ROADMAP — Added June 16, 2026
+# ================================================================
+
+Phase 2 - Reduce False Positives:
+  - Tighten Grok prompt with explicit exclusions (industries, titles,
+    company sizes she doesn't want) and require ALL criteria met
+  - Add Claude review/scoring step after Grok returns results
+      Score each posting 1-10 for fit against Cindy's profile
+      Only store postings above a threshold score
+  - Track false positive reasons when she clicks Skip/Rejected
+      Capture WHY (wrong industry, too junior, wrong location, etc.)
+      Feed reasons back into prompt refinement over time
+
+Phase 3 - Cindy Profile as Competitive Asset:
+  - Build cindy_profile.md with achievements, skills, target companies
+  - Feed profile to Claude on every tailor job call
+  - Build target company list (20-30 dream companies)
+  - Add interview prep feature (job description + resume = Q&A)
+
+Phase 4 - Workflow Improvements:
+  - Notes field in DB per company (recruiter, interview dates, next steps)
+  - Weekly Sunday summary email (applied, interviews, rejections, pending)
+  - Follow-up reminders for Applied postings with no update after 7 days
+
+Phase 5 - Resume Optimization:
+  - A/B test two resume versions (Strategic Sourcing vs Procurement Leadership)
+  - LinkedIn profile alignment with tailored resume language
+EOF
