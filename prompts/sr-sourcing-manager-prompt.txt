@@ -1,9 +1,9 @@
 I need to find remote positions for an experienced Senior Sourcing and 
 Procurement professional based in Piney Creek, North Carolina (remote only, 
-no relocation). Target base salary is $150,000 or more (range $140,000-$175,000). 
+no relocation). Target base salary is $130,000 or more (range $120,000-$175,000). 
 Open to bonus and equity. Willing to travel up to 10%.
 
-Please search LinkedIn, Indeed, Glassdoor, and company career pages for 
+Search LinkedIn, Indeed, Glassdoor, ZipRecruiter, and company career pages for 
 current openings matching the following:
 
 Target Titles (any of these):
@@ -40,14 +40,23 @@ Exclude these employers:
 - First Citizens
 - First Citizens Bank & Trust
 
-For each position found please provide:
-- Job title
-- Company name
-- Salary range (if listed)
-- Location/remote status
-- Direct link to job posting
-- 2-3 sentence description
+IMPORTANT — salary filter: Do NOT exclude postings that omit salary. Include 
+them if the title and seniority level suggest the role is likely in the 
+$140,000–$175,000+ range based on market norms for that title and company size.
 
-Find at least 10 matching positions and email results to 
-cindyrkeller@gmail.com with subject "Job Search Results - [today's date]"
+Return exactly 10 positions. If fewer than 10 exact matches exist at the strict 
+salary threshold, include the next-best matches by title and seniority fit even 
+if salary is unlisted or estimated.
+
+For each position provide ALL of the following fields, in this exact format:
+
+1. **[Job Title] – [Company Name]**
+   **Company:** [Company name]
+   **Salary:** [Range if listed, or "Not listed"]
+   **Location:** [Remote status]
+   **URL:** [Direct link to the job posting]
+   **Description:** [2-3 sentence summary]
+
+Do not include any closing notes, caveats, or summary paragraphs after the 
+10 listings. Return only the 10 job entries.
 ###END###

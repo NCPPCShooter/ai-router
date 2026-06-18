@@ -1,0 +1,83 @@
+# ============================================================
+# HOW TO WIRE himalayas_search.py INTO scheduled_search.py
+# ============================================================
+#
+# 1. Copy himalayas_search.py to your project root on the Ubuntu server:
+#
+#       scp himalayas_search.py kirk-keller@192.168.1.35:~/ai-router/
+#
+#    (or push via git and pull on the server)
+#
+#
+# 2. Add the import near the top of scheduled_search.py, alongside
+#    your other source imports:
+#
+#       from himalayas_search import search_all as himalayas_search_all
+#
+#
+# 3. Inside your main search function (wherever you currently call
+#    LinkedIn / other sources and collect results), add:
+#
+#       # --- Himalayas (internet-wide scrape via public API) ---
+#       logger.info("Running Himalayas search...")
+#       himalayas_jobs = himalayas_search_all(
+#           dedup_fn=lambda fp: db.fingerprint_exists(fp)
+#       )
+#       all_new_jobs.extend(himalayas_jobs)
+#       logger.info(f"Himalayas: {len(himalayas_jobs)} new jobs")
+#
+#    Replace `db.fingerprint_exists` with whatever method your
+#    job_db.py exposes for checking existing fingerprints.  Common
+#    patterns:
+#
+#       db.fingerprint_exists(fp)      # if job_db exposes this directly
+#       fp in db.get_all_fingerprints() # if it returns a set
+#
+#
+# 4. If BeautifulSoup isn't already installed on the server:
+#
+#       pip install beautifulsoup4
+#
+#    (himalayas_search.py uses it only to strip HTML from descriptions;
+#    if you'd rather skip the dependency, change _strip_html to just
+#    return html as-is — Claude's tailor.py handles HTML fine.)
+#
+#
+# 5. Test standalone before wiring into cron:
+#
+#       cd ~/ai-router
+#       python himalayas_search.py
+#
+#    You should see up to ~40-80 procurement/sourcing jobs printed.
+#    If you see "No jobs returned", check SEARCH_QUERIES or network.
+#
+#
+# 6. No changes needed to job_db.py, cindy_app.py, tailor.py, or
+#    run_search.sh.  The normalised dict shape from himalayas_search.py
+#    matches what your DB insert already expects.
+#
+# ============================================================
+# TUNING NOTES
+# ============================================================
+#
+# SEARCH_QUERIES (in himalayas_search.py):
+#   Edit this list freely.  Each query hits the API separately.
+#   Keep it to 6-8 queries max to stay well under rate limits.
+#
+# TARGET_SENIORITY:
+#   Currently ["Senior", "Manager", "Director", "Executive"].
+#   Remove "Senior" if you're getting too many IC roles,
+#   or add "Mid-level" to widen the net.
+#
+# PAGES_PER_QUERY:
+#   Currently 2 (= up to 40 jobs per query).  The API data refreshes
+#   every 24h, so page 2 of a daily cron run is often empty anyway.
+#   Raise to 3 only if you're consistently seeing the full 40 returned.
+#
+# country filter:
+#   Currently NOT filtering by country — fetches worldwide remote jobs.
+#   To restrict to US-eligible only, add to params in _fetch_page():
+#       params["country"] = "US"
+#   This cuts volume but may miss roles open to US candidates that
+#   aren't tagged with a country restriction.
+# ============================================================
