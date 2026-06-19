@@ -27,7 +27,7 @@ import streamlit as st
 BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
 
-from job_db import init_db, get_total_count, DB_PATH
+from job_db import init_db, get_total_count, DB_PATH, get_note, set_note
 from tailor import tailor_for_job, OUTPUT_DIR
 
 # ---------------------------------------------------------------------------
@@ -306,6 +306,24 @@ for idx, job in enumerate(jobs):
                 with st.expander("📄 Job Description Snippet", expanded=False):
                     st.text(snippet[:1500] + ("..." if len(snippet) > 1500 else ""))
 
+            # Notes
+            st.subheader("📝 Notes")
+            current_note = get_note(company)
+            note_key     = f"note_{idx}_{job_id}"
+            note_text    = st.text_area(
+                f"Notes for {company}",
+                value=current_note,
+                height=100,
+                key=note_key,
+                placeholder="Recruiter name, interview dates, impressions, next steps...",
+                label_visibility="collapsed",
+            )
+            if st.button("💾 Save Note", key=f"savenote_{idx}_{job_id}"):
+                set_note(company, note_text)
+                st.success("Note saved.")
+
+            st.markdown("---")
+            
             if st.session_state.tailor_job_id == job_id:
                 st.subheader("✏️ Tailor Resume & Cover Letter")
 

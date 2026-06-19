@@ -58,20 +58,19 @@ CREATE INDEX IF NOT EXISTS idx_date_found ON job_postings (date_found);
 # ---------------------------------------------------------------------------
 
 def init_db() -> None:
-    """Create the database and table if they don't exist."""
+    """Create the database and tables if they don't exist."""
     os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(CREATE_TABLE_SQL)
         conn.execute(CREATE_INDEX_SQL)
+        conn.execute(CREATE_NOTES_TABLE_SQL)
         conn.commit()
-
 
 def get_connection() -> sqlite3.Connection:
     """Return a connection with row_factory set."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 # ---------------------------------------------------------------------------
 # Fingerprinting
@@ -467,6 +466,62 @@ def get_db_path() -> str:
     """Return the resolved DB file path."""
     return DB_PATH
 
+
+# ---------------------------------------------------------------------------
+# Company notes
+# ---------------------------------------------------------------------------
+
+CREATE_NOTES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS company_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company     TEXT    NOT NULL UNIQUE,
+    notes       TEXT    NOT NULL DEFAULT '',
+    updated_at  TEXT    NOT NULL
+);
+"""
+
+def _normalize_company(company: str) -> str:
+    """Normalize company name for consistent lookup."""
+    return company.lower().strip()
+
+
+def get_note(company: str) -> str:
+    """Return the note for a company, or empty string if none exists."""
+    init_db()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT notes FROM company_notes WHERE company = ?",
+            (_normalize_company(company),)
+        ).fetchone()
+    return row["notes"] if row else ""
+
+
+def set_note(company: str, text: str) -> None:
+    """Insert or update the note for a company."""
+    init_db()
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO company_notes (company, notes, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(company) DO UPDATE SET
+                notes      = excluded.notes,
+                updated_at = excluded.updated_at
+            """,
+            (_normalize_company(company), text.strip(), now)
+        )
+        conn.commit()
+
+
+def get_all_notes() -> dict:
+    """Return all company notes as {normalized_company: notes} dict."""
+    init_db()
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT company, notes FROM company_notes WHERE notes != ''"
+        ).fetchall()
+    return {row["company"]: row["notes"] for row in rows}
 
 # ---------------------------------------------------------------------------
 # CLI quick-check (python job_db.py)
