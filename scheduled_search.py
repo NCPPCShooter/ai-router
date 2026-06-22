@@ -53,6 +53,21 @@ from himalayas_search import search_all as himalayas_search_all
 
 
 # ---------------------------------------------------------------------------
+# Network check
+# ---------------------------------------------------------------------------
+
+def _network_is_up(host: str = "8.8.8.8", timeout: int = 5) -> bool:
+    """Return True if we can reach the internet via IPv4."""
+    import socket
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, 53))
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Search definitions
 # ---------------------------------------------------------------------------
 
@@ -169,8 +184,21 @@ def run_search(search_def: dict) -> dict:
 
     # --- Step 1: Grok search ---
     log.info(f"  Calling Grok...")
-    raw_text = search_with_grok(prompt)
-    log.info(f"  Grok returned {len(raw_text)} chars")
+    raw_text = None
+    for attempt in range(1, 3):
+        try:
+            raw_text = search_with_grok(prompt)
+            log.info(f"  Grok returned {len(raw_text)} chars")
+            break
+        except Exception as e:
+            log.warning(f"  Grok attempt {attempt} failed: {e}")
+            if attempt < 2:
+                log.info("  Retrying in 60 seconds...")
+                import time
+                time.sleep(60)
+    if not raw_text:
+        log.error(f"  Grok failed after 2 attempts — skipping {name}")
+        return {"name": name, "new": 0, "duplicate": 0, "parsed": 0, "new_jobs": [], "error": "Grok unavailable"}
 
     # --- Step 2: Store + dedup ---
     summary = store_jobs(raw_text, source=name, verbose=True)
@@ -189,6 +217,10 @@ def run_scheduled_searches() -> None:
     log.info("=" * 60)
     log.info(f"Daily job search starting — {run_date}")
     log.info("=" * 60)
+
+    if not _network_is_up():
+        log.error("Network is unreachable — aborting scheduled search.")
+        return
 
     results = []
 
