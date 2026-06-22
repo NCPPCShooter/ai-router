@@ -3,6 +3,7 @@ NextSteps
 AI Router & Cindy Job Search — Complete Project History
 =========================================================
 Compiled: June 15, 2026
+Updated:  June 19, 2026
 
 
 ═══════════════════════════════════════════════════════════
@@ -187,17 +188,56 @@ Key Issues Resolved:
 
 
 ═══════════════════════════════════════════════════════════
+PHASE 4 — WORKFLOW IMPROVEMENTS
+June 18-19, 2026
+═══════════════════════════════════════════════════════════
+
+Session: Himalayas Integration & Pipeline Hardening (June 18)
+  - Added Himalayas.app as a second job source alongside Grok
+  - Hardened Grok parser (format A/B/C handling, trailing noise strip)
+  - Restored URL validation gate (validate_url in store_jobs and
+    store_jobs_list) — was lost in SQLite migration
+  - Tightened search queries to reduce false positives
+  - Added store_jobs_list() for pre-parsed job dicts (Himalayas path)
+  - Committed and pushed June 18 changes to GitHub
+
+Session: Samba Share & Company Notes (June 19)
+  - Problem: tailor.py drops files on Ubuntu; Cindy can't access them
+  - Solution: Installed Samba on Ubuntu, shared ~/cindy/output/
+  - Cindy's Windows laptop maps \\192.168.1.35\cindy-output as Z:
+  - Tailored docs now appear instantly in her File Explorer
+  - Added company_notes table to job_db.py (separate from job_postings)
+      Schema: company (UNIQUE), notes, updated_at
+      Functions: get_note(), set_note(), get_all_notes()
+      get_connection() added to job_db.py (was only in cindy_app.py)
+  - Added notes text area to cindy_app.py expanded job card panel
+      Per-company scope (not per-posting)
+      Save button with confirmation message
+  - Committed and pushed (commit e66946f)
+
+Key lessons:
+  - Samba is the right interim solution until NAS arrives; same
+    pattern will apply when NAS replaces Ubuntu as file server
+  - Always verify functions exist in the module being imported from,
+    not just in the calling file (get_connection lesson)
+
+
+═══════════════════════════════════════════════════════════
 REMAINING TASKS
 ═══════════════════════════════════════════════════════════
 
-  [ ] Set up cron job on Ubuntu to replace Windows Task Scheduler (6 AM daily, activate venv, run scheduled_search.py)
-  [ ] Auto-start cindy_app.py on Ubuntu boot (systemd service)
-  [ ] Add global search prompt to Job-Search-Prompts repo and re-enable in scheduled_search.py SEARCHES list
+  [x] Set up cron job on Ubuntu (6 AM daily) — DONE June 18
+  [x] Auto-start cindy_app.py on Ubuntu boot (systemd service) — DONE
+  [x] Restore URL validation gate — DONE June 18
+  [x] Commit all working files and push to GitHub — DONE June 19
+  [x] Notes field in DB per company — DONE June 19
+  [ ] Add global search prompt and re-enable in scheduled_search.py
   [ ] Test tailor resume pipeline end to end with a real posting
   [ ] Verify status persistence (Interested/Applied/Skipped) in DB
-  [ ] Commit all working files and push to GitHub
   [ ] NAS integration for ~/cindy/output/ when hardware arrives
   [ ] Consider domain/DDNS pointing to Ubuntu for remote access
+  [ ] Weekly Sunday summary email (applied, interviews, rejections)
+  [ ] Follow-up reminders for Applied postings with no update after 7 days
 
 
 ═══════════════════════════════════════════════════════════
@@ -215,6 +255,10 @@ INFRASTRUCTURE SUMMARY
     ~/cindy/resume/                        ← master documents
     ~/cindy/output/                        ← tailored output
     Streamlit job board: port 8502
+    Samba share: \\192.168.1.35\cindy-output → maps to ~/cindy/output/
+
+  Cindy's Laptop (Windows)
+    Z:\ → \\192.168.1.35\cindy-output      ← mapped network drive
 
   GitHub
     github.com/NCPPCShooter/ai-router
@@ -227,8 +271,9 @@ INFRASTRUCTURE SUMMARY
     Kirk's laptop, Cindy's laptop, Ubuntu server — all on same LAN
     NAS coming soon
 
+
 # ================================================================
-# ROADMAP — Added June 16, 2026
+# ROADMAP
 # ================================================================
 
 Phase 2 - Reduce False Positives:
@@ -248,27 +293,19 @@ Phase 3 - Cindy Profile as Competitive Asset:
   - Add interview prep feature (job description + resume = Q&A)
 
 Phase 4 - Workflow Improvements:
-  - Notes field in DB per company (recruiter, interview dates, next steps)
-  - Weekly Sunday summary email (applied, interviews, rejections, pending)
-  - Follow-up reminders for Applied postings with no update after 7 days
+  [x] Notes field in DB per company — DONE June 19
+  [ ] Weekly Sunday summary email (applied, interviews, rejections, pending)
+  [ ] Follow-up reminders for Applied postings with no update after 7 days
 
 Phase 5 - Resume Optimization:
   - A/B test two resume versions (Strategic Sourcing vs Procurement Leadership)
   - LinkedIn profile alignment with tailored resume language
 
+
 # ================================================================
-# TECHNICAL DEBT — Added June 16, 2026
+# TECHNICAL DEBT
 # ================================================================
 
-Restore URL Validation Gate (lost in SQLite migration):
-  - Old pipeline used validate_url() to check each job URL for valid
-    HTTP response codes (200, 301, 302) before storing
-  - Jobs with unresolvable URLs were skipped entirely
-  - This was a quality gate that reduced false positives
-  - New pipeline stores everything and builds LinkedIn/Indeed/Glassdoor
-    search URLs as fallback — no validation happening
-  - Restore validate_url() check in store_jobs() or run_search()
-    before inserting to DB
-  - This likely accounts for a significant portion of false positives
-    Cindy is seeing in the job board
-EOF
+  [x] Restore URL Validation Gate — DONE June 18
+      validate_url() restored in store_jobs() and store_jobs_list()
+      Jobs with unresolvable URLs skipped before DB insert

@@ -35,11 +35,11 @@ SEARCH_URL = "https://himalayas.app/jobs/api/search"
 # Mix broad and specific terms to maximise coverage without noise.
 SEARCH_QUERIES = [
     "sourcing procurement director",
-    "strategic sourcing VP",
-    "procurement executive remote",
-    "supply chain sourcing director",
-    "global procurement manager",
-    "indirect sourcing director",
+    "strategic sourcing director",
+    "director of procurement remote",
+    "VP procurement remote",
+    "global sourcing manager",
+    "indirect procurement director",
 ]
 
 # Seniority values accepted by the Himalayas API:
@@ -60,12 +60,12 @@ REQUEST_TIMEOUT = 20
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fingerprint(title: str, company: str) -> str:
+def _fingerprint(title: str, company: str, url: str = "") -> str:
     """
     SHA-256 fingerprint matching the pattern in job_db.py.
     Deduplicates on (normalised title, normalised company).
     """
-    key = f"{title.lower().strip()}|{company.lower().strip()}"
+    key = f"{title.lower().strip()}|{company.lower().strip()}|{url.lower().strip()}"
     return hashlib.sha256(key.encode()).hexdigest()
 
 
@@ -127,7 +127,7 @@ def _normalize(raw: dict) -> dict:
         "description": _strip_html(raw.get("description", "")),
         "salary_min":  raw.get("minSalary"),
         "salary_max":  raw.get("maxSalary"),
-        "fingerprint": _fingerprint(title, company),
+        "fingerprint": _fingerprint(title, company, raw.get("applicationLink", "")),
         # Extra fields — job_db.py can ignore these or store them in a JSON blob
         "seniority":   raw.get("seniority", []),
         "categories":  raw.get("categories", []),
